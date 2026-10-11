@@ -97,8 +97,9 @@ class Store {
         FROM events e
         LEFT JOIN event_sources es ON es.event_id = e.id
         LEFT JOIN sources s ON s.id = es.source_id
-        WHERE (:past = 1 OR COALESCE(e.end, e.start) >= :cutoff
-               OR (e.start IS NULL AND e.last_seen >= :recent))
+        WHERE e.start >= :today
+           OR e.end >= :now
+           OR (e.start IS NULL AND e.last_seen >= :recent)
         GROUP BY e.id
         ORDER BY e.start IS NULL, e.start, e.id
         LIMIT :limit`),
@@ -189,12 +190,17 @@ class Store {
     return result;
   }
 
-  /** Upcoming events (or all with past), earliest first, with the Pages they came from. */
-  events({ past = false, now = new Date(), limit = 1000 } = {}) {
-    const t = Math.floor(now.getTime() / 1000);
+  /**
+   * Events from today on (local time, TZ=Europe/Warsaw in the image), closest first, with the
+   * Pages they came from. Never past ones, except events still running (a festival that
+   * started yesterday). Events without a date show while Facebook still lists them.
+   */
+  events({ now = new Date(), limit = 1000 } = {}) {
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
     return this.q.events.all({
-      past: past ? 1 : 0,
-      cutoff: t - 6 * 3600, // still show events that started a few hours ago
+      today: Math.floor(today.getTime() / 1000),
+      now: Math.floor(now.getTime() / 1000),
       recent: new Date(now.getTime() - 14 * 86400_000).toISOString(),
       limit,
     }).map((r) => ({

@@ -48,7 +48,6 @@ function page({ publicList }) {
   <div class="filters">
     <select id="source" aria-label="Venue"></select>
     <input id="q" type="search" placeholder="Search name or place" aria-label="Search">
-    <label><input id="past" type="checkbox"> past events</label>
   </div>
   <div id="list"><p class="msg">Loading…</p></div>
 </main>
@@ -100,7 +99,6 @@ async function api(method, path, body) {
 let events = [];
 const params = new URLSearchParams(location.search);
 $('q').value = params.get('q') || '';
-$('past').checked = params.get('past') === '1';
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -169,7 +167,7 @@ function render() {
 }
 
 function saveFilters() {
-  for (const [k, v] of [['page', $('source').value], ['q', $('q').value.trim()], ['past', $('past').checked ? '1' : '']]) {
+  for (const [k, v] of [['page', $('source').value], ['q', $('q').value.trim()]]) {
     v ? params.set(k, v) : params.delete(k);
   }
   history.replaceState(null, '', params.toString() ? '?' + params : location.pathname);
@@ -181,7 +179,7 @@ async function load() {
     return;
   }
   try {
-    events = (await api('GET', '/api/events' + ($('past').checked ? '?past=1' : ''))).events;
+    events = (await api('GET', '/api/events')).events;
     fillSources();
     render();
   } catch (e) {
@@ -191,7 +189,6 @@ async function load() {
 
 $('source').addEventListener('change', () => { saveFilters(); render(); });
 $('q').addEventListener('input', () => { saveFilters(); render(); });
-$('past').addEventListener('change', () => { saveFilters(); load(); });
 
 // ---- managing Pages ----
 const dlg = $('admin');

@@ -133,8 +133,7 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
 
       if (path === '/api/events' && req.method === 'GET') {
         if (!publicList && !authorized(req, res)) return undefined;
-        const past = url.searchParams.get('past') === '1';
-        return send(res, 200, { events: store.events({ past, now: now() }) });
+        return send(res, 200, { events: store.events({ now: now() }) });
       }
       if (!path.startsWith('/api/')) return fail(res, 404, 'not found');
 

@@ -1,3 +1,4 @@
+process.env.TZ = 'Europe/Warsaw'; // as in the image: "today" is a Warsaw day
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
@@ -71,23 +72,28 @@ test('fbevents posts events; each is stored once and "new" only the first time',
   assert.equal(r.json.events[1].url, 'https://www.facebook.com/events/111111/');
 });
 
-test('past events are hidden unless asked for', async (t) => {
-  const s = await startServer();
+test('only events from today on, closest first; never past ones', async (t) => {
+  const s = await startServer(); // NOW is 10:00 in Warsaw (TZ set at the top)
   t.after(s.close);
   await s.api('POST', '/api/events', {
     body: {
       events: [
         { url: '/events/100001/', name: 'Last week', start: T - 7 * DAY },
-        { url: '/events/100002/', name: 'Started an hour ago', start: T - 3600 },
-        { url: '/events/100003/', name: 'Festival, ends tomorrow', start: T - 2 * DAY, end: T + DAY },
-        { url: '/events/100004/', name: 'No date', card: 'SAT · Somewhere' },
+        { url: '/events/100002/', name: 'Yesterday 23:00', start: T - 11 * 3600, end: T - 9 * 3600 },
+        { url: '/events/100003/', name: 'Today 07:00', start: T - 3 * 3600 },
+        { url: '/events/100008/', name: 'Today 00:30', start: T - 9.5 * 3600 }, // still yesterday in UTC
+        { url: '/events/100004/', name: 'Next week', start: T + 7 * DAY },
+        { url: '/events/100005/', name: 'Tomorrow', start: T + DAY },
+        { url: '/events/100006/', name: 'Festival, ends tomorrow', start: T - 2 * DAY, end: T + DAY },
+        { url: '/events/100007/', name: 'No date', card: 'SAT · Somewhere' },
       ],
     },
   });
-  let r = await s.api('GET', '/api/events', { token: null });
-  assert.deepEqual(r.json.events.map((e) => e.name), ['Festival, ends tomorrow', 'Started an hour ago', 'No date']);
-  r = await s.api('GET', '/api/events?past=1', { token: null });
-  assert.equal(r.json.events.length, 4);
+  for (const q of ['', '?past=1']) {
+    const r = await s.api('GET', '/api/events' + q, { token: null });
+    assert.deepEqual(r.json.events.map((e) => e.name),
+      ['Festival, ends tomorrow', 'Today 00:30', 'Today 07:00', 'Tomorrow', 'Next week', 'No date']);
+  }
 });
 
 test('managing Pages needs the token', async (t) => {
