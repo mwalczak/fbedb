@@ -71,6 +71,7 @@ class Store {
     `);
     const set = EVENT_FIELDS.map((f) => `${f} = COALESCE(:${f}, ${f})`).join(', ');
     this.q = {
+      lastCollected: this.db.prepare('SELECT MAX(first_seen) AS t FROM events'),
       sources: this.db.prepare(`
         SELECT s.id, s.url, s.name, s.enabled, s.created_at, COUNT(es.event_id) AS events
         FROM sources s LEFT JOIN event_sources es ON es.source_id = s.id
@@ -220,6 +221,11 @@ class Store {
       first_seen: r.first_seen,
       last_seen: r.last_seen,
     }));
+  }
+
+  /** When the newest event was first saved (ISO time), or null. */
+  lastCollected() {
+    return this.q.lastCollected.get().t ?? null;
   }
 
   close() {

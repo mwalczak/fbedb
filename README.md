@@ -3,7 +3,8 @@
 The list of Facebook events collected by [fbevents](https://github.com/mwalczak/fbevents),
 running at **https://fbedb.walczaki.com**.
 
-- Open the site to browse events from today on, closest first, grouped by day. Past events are
+- Open the site to browse events from today on, closest first, grouped by day. The top line
+  shows how many there are (and how many match the filters) and when the newest one was collected. Past events are
   never shown (except ones still running, like a festival that started yesterday). Filter by
   venue (the Facebook Page an event came from, or "Nearby" for events from the town page) or
   search. Filters stay in the address, so a filtered list can be bookmarked.
@@ -22,7 +23,7 @@ All requests except the event list need `Authorization: Bearer <TOKEN>`.
 
 | Request | What |
 | --- | --- |
-| `GET /api/events` | Events from today on (Warsaw time), closest first. Public unless `PUBLIC_LIST=false` |
+| `GET /api/events` | Events from today on (Warsaw time), closest first, and `last_collected` (when the newest event was saved). Public unless `PUBLIC_LIST=false` |
 | `POST /api/events` | Save events from a fbevents run (below) |
 | `GET /api/sources` | Facebook Pages to check |
 | `POST /api/sources` | Add a Page: `{"url": "https://www.facebook.com/SomeVenue", "name": "…"}` |

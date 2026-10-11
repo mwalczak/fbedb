@@ -69,6 +69,7 @@ test('fbevents posts events; each is stored once and "new" only the first time',
     ['111111', 'Concert', 'The Venue', null, true],
   ]);
   assert.deepEqual(r.json.events[1].sources, [{ id: 1, name: 'The Venue' }]);
+  assert.equal(r.json.last_collected, NOW.toISOString());
   assert.equal(r.json.events[1].url, 'https://www.facebook.com/events/111111/');
 });
 

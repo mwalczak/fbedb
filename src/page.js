@@ -12,8 +12,9 @@ function page({ publicList }) {
   :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 14%, transparent); --dim: color-mix(in srgb, CanvasText 62%, transparent); --accent: #2f6fdb; }
   body { margin: 0; font-family: system-ui, sans-serif; background: Canvas; color: CanvasText; line-height: 1.4; }
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
-  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  h1 { font-size: 1.6rem; margin: 8px 0 12px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
+  .stats { color: var(--dim); margin: 0; }
+  #manage { white-space: nowrap; }
   button, input, select { font: inherit; color: inherit; }
   .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -44,7 +45,7 @@ function page({ publicList }) {
 </head>
 <body>
 <main>
-  <header><h1>Events</h1><button class="link" id="manage" type="button">Manage Pages</button></header>
+  <header><p class="stats" id="stats"></p><button class="link" id="manage" type="button">Manage Pages</button></header>
   <div class="filters">
     <select id="source" aria-label="Venue"></select>
     <input id="q" type="search" placeholder="Search name or place" aria-label="Search">
@@ -97,6 +98,7 @@ async function api(method, path, body) {
 
 // ---- events list ----
 let events = [];
+let lastCollected = null;
 const params = new URLSearchParams(location.search);
 $('q').value = params.get('q') || '';
 
@@ -134,6 +136,13 @@ function fillSources() {
   sel.value = chosen;
 }
 
+function showStats(shownCount) {
+  const n = events.length;
+  let text = (shownCount < n ? shownCount + ' of ' : '') + n + (n === 1 ? ' event' : ' events');
+  if (lastCollected) text += ' · last collected ' + shortFmt.format(new Date(lastCollected));
+  $('stats').textContent = text;
+}
+
 function render() {
   const src = $('source').value;
   const q = $('q').value.trim().toLowerCase();
@@ -141,6 +150,7 @@ function render() {
   const shown = events.filter((ev) =>
     (!src || (src === 'nearby' ? ev.nearby : ev.sources.some((s) => String(s.id) === src)))
     && (!q || [ev.name, ev.place, ev.city, ev.card, ...ev.sources.map((s) => s.name)].join(' ').toLowerCase().includes(q)));
+  showStats(shown.length);
   const list = $('list');
   if (!shown.length) return list.replaceChildren(el('p', { className: 'empty', textContent: events.length ? 'No events match.' : 'No events yet.' }));
   const out = [];
@@ -179,7 +189,7 @@ async function load() {
     return;
   }
   try {
-    events = (await api('GET', '/api/events')).events;
+    ({ events, last_collected: lastCollected } = await api('GET', '/api/events'));
     fillSources();
     render();
   } catch (e) {
