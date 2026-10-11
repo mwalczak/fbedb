@@ -1,0 +1,84 @@
+# The database lives on this volume, so events survive restarts and redeploys.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fbedb-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fbedb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate # only one pod may use the database volume at a time
+  selector:
+    matchLabels: { app: fbedb }
+  template:
+    metadata:
+      labels: { app: fbedb }
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: fbedb
+          image: IMAGE_PLACEHOLDER
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TOKEN
+              valueFrom: { secretKeyRef: { name: fbedb, key: TOKEN } }
+            - name: PUBLIC_LIST
+              value: "true" # "false" = the list needs the token too
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+          resources:
+            requests: { cpu: 10m, memory: 48Mi }
+            limits: { memory: 128Mi }
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: fbedb-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fbedb
+spec:
+  selector: { app: fbedb }
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fbedb
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: [fbedb.walczaki.com]
+      secretName: fbedb-tls
+  rules:
+    - host: fbedb.walczaki.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fbedb
+                port:
+                  number: 80
