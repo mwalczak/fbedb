@@ -135,6 +135,24 @@ class Store {
     return this.q.deleteSource.run(id).changes > 0;
   }
 
+  /**
+   * Events linked to more than `maxPages` Pages were picked up from Facebook's own menus, not
+   * from the Pages (fixed in fbevents). Removes those events' Page links; the events stay, and
+   * the next fbevents run links them again to the Pages that really list them.
+   * Returns the affected events; with dryRun nothing is changed.
+   */
+  unlinkOverlinked(maxPages, { dryRun = false } = {}) {
+    const rows = this.db.prepare(`
+      SELECT e.id, e.fb_id, e.name, COUNT(*) AS pages FROM event_sources es
+      JOIN events e ON e.id = es.event_id
+      GROUP BY e.id HAVING COUNT(*) > ? ORDER BY pages DESC`).all(maxPages);
+    if (!dryRun) {
+      const del = this.db.prepare('DELETE FROM event_sources WHERE event_id = ?');
+      for (const r of rows) del.run(r.id);
+    }
+    return rows.map(({ fb_id, name, pages }) => ({ fb_id, name, pages }));
+  }
+
   // ---- events ----
 
   /**

@@ -172,3 +172,26 @@ test('the page is served and the API 404s politely', async (t) => {
   assert.equal((await s.api('GET', '/healthz', { token: null })).text, 'ok\n');
   assert.equal((await s.api('GET', '/api/nope')).status, 404);
 });
+
+test('cleaning up events linked to too many Pages', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  const urls = [];
+  for (let i = 1; i <= 7; i++) {
+    urls.push(`https://www.facebook.com/Venue${i}`);
+    await s.api('POST', '/api/sources', { body: { url: urls.at(-1) } });
+  }
+  await s.api('POST', '/api/events', {
+    body: {
+      events: [
+        { ...concert, sources: urls.map((url) => ({ kind: 'page', url })) }, // from Facebook's sidebar
+        { ...fair, sources: [{ kind: 'page', url: urls[0] }, { kind: 'nearby' }] },
+      ],
+    },
+  });
+  assert.deepEqual(s.store.unlinkOverlinked(5, { dryRun: true }), [{ fb_id: '111111', name: 'Concert', pages: 7 }]);
+  assert.equal(s.store.unlinkOverlinked(5).length, 1);
+  assert.deepEqual(s.store.unlinkOverlinked(5), []);
+  const r = await s.api('GET', '/api/events', { token: null });
+  assert.deepEqual(r.json.events.map((e) => [e.name, e.sources.length]), [['Fair', 1], ['Concert', 0]]);
+});

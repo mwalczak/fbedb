@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js ./
+COPY package.json server.js maintenance.js ./
 COPY src ./src
 RUN mkdir -p /data && chown node:node /data
 ENV NODE_ENV=production PORT=8080 DB_FILE=/data/events.db TZ=Europe/Warsaw

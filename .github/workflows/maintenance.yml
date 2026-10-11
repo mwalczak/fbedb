@@ -1,0 +1,42 @@
+name: Maintenance
+
+# One-off database fixes inside the running fbedb pod. Startable from the Actions tab or from a
+# Claude session through the GitHub API.
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to do"
+        type: choice
+        options: [unlink-overlinked]
+        default: unlink-overlinked
+      max_pages:
+        description: "unlink-overlinked: events linked to more Pages than this lose their Page links"
+        type: number
+        default: 5
+      dry_run:
+        description: "Dry run: only list what would change"
+        type: boolean
+        default: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Run it in the fbedb pod
+        env:
+          TASK: ${{ inputs.task }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          flag=""
+          [ "$DRY_RUN" = "true" ] && flag="--dry-run"
+          ssh debian@${{ secrets.VPS_HOST }} "KUBECONFIG=\$HOME/.kube/config kubectl exec deploy/fbedb -- \
+            node --disable-warning=ExperimentalWarning maintenance.js $(printf '%q %q %q' "$TASK" "$MAX_PAGES" "$flag")"
