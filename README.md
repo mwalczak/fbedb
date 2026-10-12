@@ -7,7 +7,8 @@ running at **https://fbedb.walczaki.com**.
   shows how many there are (and how many match the filters) and when the newest one was collected. Past events are
   never shown (except ones still running, like a festival that started yesterday). Filter by
   venue (the Facebook Page an event came from, or "Nearby" for events from the town page) or
-  search. Filters stay in the address, so a filtered list can be bookmarked.
+  search, or press **New** for only the events first saved in the last 3 days (they carry a "new"
+  tag). Filters stay in the address, so a filtered list can be bookmarked.
 - **Manage Pages** (log in with the token) lists the Facebook Pages fbevents checks every day:
   add, rename, pause or remove them. Removing a Page keeps its events.
 - fbevents posts every event it finds to the API. Events are stored once, by their Facebook

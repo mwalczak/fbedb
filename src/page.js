@@ -21,6 +21,8 @@ function page({ publicList }) {
   .filters select, .filters input[type=search] { padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; min-width: 0; }
   .filters input[type=search] { flex: 1 1 160px; }
   .filters label { white-space: nowrap; color: var(--dim); }
+  .toggle { padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; cursor: pointer; }
+  .toggle[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: #fff; }
   h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); margin: 20px 0 4px; }
   ul { list-style: none; padding: 0; margin: 0; }
   li.ev { padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -48,6 +50,7 @@ function page({ publicList }) {
   <header><p class="stats" id="stats"></p><button class="link" id="manage" type="button">Manage Pages</button></header>
   <div class="filters">
     <select id="source" aria-label="Venue"></select>
+    <button id="onlyNew" class="toggle" type="button" aria-pressed="false" title="Only events added in the last 3 days">New</button>
     <input id="q" type="search" placeholder="Search name or place" aria-label="Search">
   </div>
   <div id="list"><p class="msg">Loading…</p></div>
@@ -101,6 +104,11 @@ let events = [];
 let lastCollected = null;
 const params = new URLSearchParams(location.search);
 $('q').value = params.get('q') || '';
+$('onlyNew').setAttribute('aria-pressed', String(params.get('new') === '1'));
+const onlyNew = () => $('onlyNew').getAttribute('aria-pressed') === 'true';
+// "new": first saved here in the last 3 days
+const NEW_DAYS = 3;
+const isNew = (ev) => Date.parse(ev.first_seen) > Date.now() - NEW_DAYS * 86400000;
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -146,9 +154,9 @@ function showStats(shownCount) {
 function render() {
   const src = $('source').value;
   const q = $('q').value.trim().toLowerCase();
-  const newSince = Date.now() - 3 * 86400000;
   const shown = events.filter((ev) =>
     (!src || (src === 'nearby' ? ev.nearby : ev.sources.some((s) => String(s.id) === src)))
+    && (!onlyNew() || isNew(ev))
     && (!q || [ev.name, ev.place, ev.city, ev.card, ...ev.sources.map((s) => s.name)].join(' ').toLowerCase().includes(q)));
   showStats(shown.length);
   const list = $('list');
@@ -164,7 +172,7 @@ function render() {
       out.push(el('h2', { textContent: d }), ul);
     }
     const tags = [];
-    if (Date.parse(ev.first_seen) > newSince) tags.push(el('span', { className: 'tag new', textContent: 'new' }));
+    if (isNew(ev)) tags.push(el('span', { className: 'tag new', textContent: 'new' }));
     for (const s of ev.sources) tags.push(el('span', { className: 'tag', textContent: s.name }));
     if (ev.nearby && !ev.sources.length) tags.push(el('span', { className: 'tag', textContent: 'nearby' }));
     ul.append(el('li', { className: 'ev' },
@@ -177,7 +185,7 @@ function render() {
 }
 
 function saveFilters() {
-  for (const [k, v] of [['page', $('source').value], ['q', $('q').value.trim()]]) {
+  for (const [k, v] of [['page', $('source').value], ['new', onlyNew() ? '1' : ''], ['q', $('q').value.trim()]]) {
     v ? params.set(k, v) : params.delete(k);
   }
   history.replaceState(null, '', params.toString() ? '?' + params : location.pathname);
@@ -199,6 +207,11 @@ async function load() {
 
 $('source').addEventListener('change', () => { saveFilters(); render(); });
 $('q').addEventListener('input', () => { saveFilters(); render(); });
+$('onlyNew').addEventListener('click', () => {
+  $('onlyNew').setAttribute('aria-pressed', String(!onlyNew()));
+  saveFilters();
+  render();
+});
 
 // ---- managing Pages ----
 const dlg = $('admin');
