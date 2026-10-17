@@ -100,9 +100,10 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
     const body = await readJson(req);
     if (!Array.isArray(body.events)) return fail(res, 422, 'events must be a list');
     if (body.events.length > MAX_EVENTS) return fail(res, 413, `at most ${MAX_EVENTS} events at a time`);
-    const result = store.saveEvents(body.events, now());
+    if (body.checked !== undefined && !Array.isArray(body.checked)) return fail(res, 422, 'checked must be a list');
+    const result = store.saveEvents(body.events, now(), body.checked);
     console.log(`saved events: ${result.new.length} new, ${result.updated.length} updated,`
-      + ` ${result.unknown.length} unknown, ${result.invalid} invalid`);
+      + ` ${result.unknown.length} unknown, ${result.invalid} invalid; ${result.checked} Pages checked`);
     return send(res, 200, result);
   }
 
@@ -114,7 +115,7 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
 
   async function updateSource(req, res, id) {
     const body = await readJson(req);
-    const source = store.updateSource(id, body);
+    const source = store.updateSource(id, body, now());
     return source ? send(res, 200, source) : fail(res, 404, 'no such Page');
   }
 
@@ -141,7 +142,7 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
       if (!authorized(req, res)) return undefined;
       if (path === '/api/me' && req.method === 'GET') return send(res, 204);
       if (path === '/api/events' && req.method === 'POST') return await postEvents(req, res);
-      if (path === '/api/sources' && req.method === 'GET') return send(res, 200, { sources: store.sources() });
+      if (path === '/api/sources' && req.method === 'GET') return send(res, 200, { sources: store.sources(now()) });
       if (path === '/api/sources' && req.method === 'POST') return await addSource(req, res);
       const m = path.match(/^\/api\/sources\/(\d+)$/);
       if (m && req.method === 'PATCH') return await updateSource(req, res, Number(m[1]));

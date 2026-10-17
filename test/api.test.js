@@ -46,7 +46,7 @@ test('fbevents posts events; each is stored once and "new" only the first time',
 
   let r = await s.api('POST', '/api/events', { body: { events: [concert, fair] } });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.json, { new: ['111111', '222222'], updated: [], unknown: [], invalid: 0 });
+  assert.deepEqual(r.json, { new: ['111111', '222222'], updated: [], unknown: [], invalid: 0, checked: 0 });
 
   // Next day: the same events again (one with another url spelling), plus a touch of an
   // unknown event (e.g. one fbevents skipped as too far away), which must not be created.
@@ -60,7 +60,7 @@ test('fbevents posts events; each is stored once and "new" only the first time',
       ],
     },
   });
-  assert.deepEqual(r.json, { new: [], updated: ['222222', '111111'], unknown: ['333333'], invalid: 1 });
+  assert.deepEqual(r.json, { new: [], updated: ['222222', '111111'], unknown: ['333333'], invalid: 1, checked: 0 });
 
   r = await s.api('GET', '/api/events', { token: null });
   assert.equal(r.status, 200);
@@ -194,4 +194,77 @@ test('cleaning up events linked to too many Pages', async (t) => {
   assert.deepEqual(s.store.unlinkOverlinked(5), []);
   const r = await s.api('GET', '/api/events', { token: null });
   assert.deepEqual(r.json.events.map((e) => [e.name, e.sources.length]), [['Fair', 1], ['Concert', 0]]);
+});
+
+test('each Page is checked as often as it brings new events', async (t) => {
+  let now = NOW;
+  const s = await startServer({ now: () => now });
+  t.after(s.close);
+  const later = (hours) => { now = new Date(now.getTime() + hours * 3600_000); };
+  const venue2 = 'https://www.facebook.com/QuietPub';
+  await s.api('POST', '/api/sources', { body: { url: venue } });
+  await s.api('POST', '/api/sources', { body: { url: venue2 } });
+  const schedule = async () => (await s.api('GET', '/api/sources')).json.sources
+    .map((x) => [x.url.split('/').pop(), x.due, x.interval_days]);
+  const check = (events, checked) => s.api('POST', '/api/events', { body: { events, checked } });
+  const ev = (id) => ({ url: `https://www.facebook.com/events/${id}/`, name: `E${id}`, start: T + 9 * DAY,
+    sources: [{ kind: 'page', url: venue }] });
+
+  // New Pages are due right away.
+  assert.deepEqual(await schedule(), [['QuietPub', true, 0.5], ['TheVenue', true, 0.5]]);
+
+  // The Venue brings a new event: stays on every run. The pub brings nothing: daily.
+  let r = await check([ev(500001)], [{ url: venue }, { url: venue2 + '/upcoming_hosted_events' }]);
+  assert.equal(r.json.checked, 2);
+  assert.deepEqual(await schedule(), [['QuietPub', false, 1], ['TheVenue', false, 0.5]]);
+
+  later(10); // the evening run: the Venue is due again, the pub isn't
+  assert.deepEqual(await schedule(), [['QuietPub', false, 1], ['TheVenue', true, 0.5]]);
+
+  // Quiet checks slow a Page down step by step, to once a week at most.
+  for (const step of [1, 2, 4, 7, 7]) {
+    later(24 * 7);
+    await check([], [venue2]);
+    assert.deepEqual((await schedule())[0], ['QuietPub', false, step === 1 ? 2 : step === 2 ? 4 : 7]);
+  }
+
+  // A touched (already known) event is no news; a new event puts the Page back on every run.
+  later(24 * 7);
+  await check([{ url: ev(500001).url, touch: true, sources: [{ kind: 'page', url: venue2 }] }], [venue2]);
+  assert.deepEqual((await schedule())[0], ['QuietPub', false, 7]);
+  later(24 * 7);
+  await check([{ ...ev(500002), sources: [{ kind: 'page', url: venue2 }] }], [venue2]);
+  assert.deepEqual((await schedule())[0], ['QuietPub', false, 0.5]);
+
+  // "Always check" and "check on the next run" overrides.
+  const pub = (await s.api('GET', '/api/sources')).json.sources[0];
+  r = await s.api('PATCH', `/api/sources/${pub.id}`, { body: { pinned: true } });
+  assert.deepEqual([r.json.pinned, r.json.due], [true, true]);
+  await s.api('PATCH', `/api/sources/${pub.id}`, { body: { pinned: false } });
+  await check([], [venue2]);
+  assert.equal((await schedule())[0][1], false);
+  r = await s.api('PATCH', `/api/sources/${pub.id}`, { body: { check_now: true } });
+  assert.equal(r.json.due, true);
+
+  // A paused Page is never due.
+  r = await s.api('PATCH', `/api/sources/${pub.id}`, { body: { enabled: false } });
+  assert.equal(r.json.due, false);
+});
+
+test('the address Facebook redirects to counts as the same Page', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  await s.api('POST', '/api/sources', { body: { url: 'https://www.facebook.com/profile.php?id=10006' } });
+  await s.api('POST', '/api/events', {
+    body: { events: [], checked: [{ url: 'https://www.facebook.com/profile.php?id=10006',
+      final_url: 'https://www.facebook.com/klub.jazz/upcoming_hosted_events' }] },
+  });
+  const r = await s.api('POST', '/api/sources', { body: { url: 'https://m.facebook.com/klub.jazz/events' } });
+  assert.equal(r.status, 409);
+  await s.api('POST', '/api/events', {
+    body: { events: [{ ...concert, sources: [{ kind: 'page', url: 'https://www.facebook.com/klub.jazz' }] }] },
+  });
+  const src = (await s.api('GET', '/api/sources')).json.sources[0];
+  assert.equal(src.events, 1);
+  assert.equal(src.alias_url, 'https://www.facebook.com/klub.jazz');
 });

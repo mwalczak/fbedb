@@ -10,4 +10,8 @@ See README.md for the API and deploy.
   COALESCE so a partial post never erases stored fields; `touch` entries never create events.
 - The API contract (`POST /api/events`, `GET /api/sources`) is used by `fbevents/fbedb.py`;
   change both together.
+- Adaptive schedule per Page (`INTERVAL_DAYS` levels in `src/store.js`): fbevents reads `due` from
+  `GET /api/sources` and reports `checked` Pages with `POST /api/events`.
+- Schema changes go in `Store.migrate()` (ALTER TABLE ADD COLUMN), never by recreating tables:
+  the live database is on a volume.
 - Tests: `npm test`.

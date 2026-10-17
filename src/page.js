@@ -41,6 +41,7 @@ function page({ publicList }) {
   .src { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .src .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .src .name small { display: block; color: var(--dim); }
+  .src .name .actions { display: flex; gap: 12px; flex-wrap: wrap; }
   .src.off .name { opacity: .5; }
   .row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 </style>
@@ -111,6 +112,7 @@ const NEW_DAYS = 3;
 const isNew = (ev) => Date.parse(ev.first_seen) > Date.now() - NEW_DAYS * 86400000;
 
 const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+const dayFmtShort = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const shortFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
@@ -254,7 +256,7 @@ async function loadSources() {
 }
 
 function sourceRow(s) {
-  const toggle = el('input', { type: 'checkbox', checked: s.enabled, title: 'Check this Page every day' });
+  const toggle = el('input', { type: 'checkbox', checked: s.enabled, title: 'Check this Page (untick to pause)' });
   toggle.addEventListener('change', async () => { await api('PATCH', '/api/sources/' + s.id, { enabled: toggle.checked }).catch(alertErr); loadSources(); });
   const rename = el('button', { className: 'link', type: 'button', textContent: 'Rename' });
   rename.addEventListener('click', async () => {
@@ -269,10 +271,33 @@ function sourceRow(s) {
       load();
     }
   });
+  const patch = (body) => async () => { await api('PATCH', '/api/sources/' + s.id, body).catch(alertErr); loadSources(); };
+  const actions = [];
+  if (s.enabled && !s.due) {
+    const now = el('button', { className: 'link', type: 'button', textContent: 'Check on next run' });
+    now.addEventListener('click', patch({ check_now: true }));
+    actions.push(now);
+  }
+  if (s.enabled) {
+    const pin = el('button', { className: 'link', type: 'button', textContent: s.pinned ? 'Back to adaptive' : 'Always check' });
+    pin.addEventListener('click', patch({ pinned: !s.pinned }));
+    actions.push(pin);
+  }
   return el('div', { className: 'src' + (s.enabled ? '' : ' off') }, toggle,
     el('div', { className: 'name' }, el('a', { href: s.url, target: '_blank', rel: 'noopener', textContent: s.name || s.url }),
-      el('small', { textContent: s.events + (s.events === 1 ? ' event' : ' events') + (s.enabled ? '' : ' · paused') })),
+      el('small', { textContent: s.events + (s.events === 1 ? ' event' : ' events') + ' · ' + schedule(s) }),
+      actions.length ? el('small', { className: 'actions' }, ...actions) : null),
     rename, del);
+}
+
+// How often fbevents checks a Page: every run while it brings new events, then less often.
+function schedule(s) {
+  if (!s.enabled) return 'paused';
+  if (s.pinned) return 'checked on every run (always)';
+  const every = s.interval_days < 1 ? 'every run' : s.interval_days === 1 ? 'daily'
+    : s.interval_days === 7 ? 'weekly' : 'every ' + s.interval_days + ' days';
+  if (!s.last_checked_at) return 'not checked yet';
+  return 'checked ' + every + (s.due ? ', due on next run' : ', next ' + dayFmtShort.format(new Date(s.next_check_at)));
 }
 
 function alertErr(e) { alert(e.message); }

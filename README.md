@@ -9,8 +9,12 @@ running at **https://fbedb.walczaki.com**.
   venue (the Facebook Page an event came from, or "Nearby" for events from the town page) or
   search, or press **New** for only the events first saved in the last 3 days (they carry a "new"
   tag). Filters stay in the address, so a filtered list can be bookmarked.
-- **Manage Pages** (log in with the token) lists the Facebook Pages fbevents checks every day:
-  add, rename, pause or remove them. Removing a Page keeps its events.
+- **Manage Pages** (log in with the token) lists the Facebook Pages fbevents checks: add,
+  rename, pause or remove them. Removing a Page keeps its events.
+- **Adaptive schedule:** a Page is checked on every run (twice a day) while it brings new events.
+  Each check without a new event moves it one step slower: daily, every 2 days, every 4 days,
+  weekly at most. One new event puts it back on every run. New Pages start on every run. Manage
+  Pages shows each Page's schedule, with **Check on next run** and **Always check** to override it.
 - fbevents posts every event it finds to the API. Events are stored once, by their Facebook
   event id, so the same event posted again only updates it. fbevents emails only the events
   that were new here.
@@ -26,9 +30,9 @@ All requests except the event list need `Authorization: Bearer <TOKEN>`.
 | --- | --- |
 | `GET /api/events` | Events from today on (Warsaw time), closest first, and `last_collected` (when the newest event was saved). Public unless `PUBLIC_LIST=false` |
 | `POST /api/events` | Save events from a fbevents run (below) |
-| `GET /api/sources` | Facebook Pages to check |
+| `GET /api/sources` | Facebook Pages, each with its schedule and `due` (check it on this run) |
 | `POST /api/sources` | Add a Page: `{"url": "https://www.facebook.com/SomeVenue", "name": "…"}` |
-| `PATCH /api/sources/{id}` | `{"name": "…"}` and/or `{"enabled": false}` |
+| `PATCH /api/sources/{id}` | `{"name": "…"}`, `{"enabled": false}`, `{"pinned": true}` (always check), `{"check_now": true}` |
 | `DELETE /api/sources/{id}` | Stop checking a Page (its events stay) |
 | `GET /api/me` | 204 if the token is right |
 | `GET /healthz` | Health check |
@@ -55,6 +59,10 @@ curl -X POST https://fbedb.walczaki.com/api/events -H "Authorization: Bearer $TO
   creates one, so fbevents can report events it didn't open again without adding the ones
   it skipped as past or too far away.
 - `sources` links the event to Pages on the list (matched by address) and marks `nearby` ones.
+- `checked` (optional, next to `events`) lists the Pages fbevents looked at in this run, as
+  `{"url": "…", "final_url": "…"}`: their schedules move on (back to every run if one of their
+  events was new). `final_url` is where Facebook redirected, e.g. the vanity name of a
+  `profile.php?id=…` Page; it's remembered so both addresses count as the same Page.
 
 ## Deploy
 
