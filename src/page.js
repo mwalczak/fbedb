@@ -14,6 +14,9 @@ function page({ publicList }) {
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
   .stats { color: var(--dim); margin: 0; }
+  /* Count and "last collected" on their own lines, so filtering never re-wraps the header. */
+  .stats span { display: block; }
+  .stats #collected { font-size: .85rem; }
   header { align-items: center; }
   .menu { position: relative; }
   .burger { font-size: 1.4rem; line-height: 1; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; cursor: pointer; }
@@ -70,7 +73,7 @@ function page({ publicList }) {
 </head>
 <body>
 <main>
-  <header><p class="stats" id="stats"></p>
+  <header><p class="stats"><span id="count"></span><span id="collected"></span></p>
     <nav class="menu">
       <button id="menuBtn" class="burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menuList">&#9776;</button>
       <ul id="menuList" hidden>
@@ -204,9 +207,8 @@ function fillSources() {
 
 function showStats(shownCount) {
   const n = events.length;
-  let text = (shownCount < n ? shownCount + ' of ' : '') + n + (n === 1 ? ' event' : ' events');
-  if (lastCollected) text += ' · last collected ' + shortFmt.format(new Date(lastCollected));
-  $('stats').textContent = text;
+  $('count').textContent = (shownCount < n ? shownCount + ' of ' : '') + n + (n === 1 ? ' event' : ' events');
+  $('collected').textContent = lastCollected ? 'last collected ' + shortFmt.format(new Date(lastCollected)) : '';
 }
 
 function render() {
