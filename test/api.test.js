@@ -268,3 +268,95 @@ test('the address Facebook redirects to counts as the same Page', async (t) => {
   assert.equal(src.events, 1);
   assert.equal(src.alias_url, 'https://www.facebook.com/klub.jazz');
 });
+
+test('visitors suggest Pages; the admin approves or rejects them', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  const suggest = (body) => s.api('POST', '/api/suggestions', { token: null, body });
+
+  let r = await suggest({ url: 'https://m.facebook.com/KlubJazz/?ref=share', name: 'Klub Jazz', note: 'great gigs', by: 'Ania' });
+  assert.equal(r.status, 201);
+  assert.deepEqual(r.json, { status: 'pending', url: 'https://www.facebook.com/KlubJazz' });
+  assert.equal((await suggest({ url: 'not a page' })).status, 422);
+
+  // Waiting for approval: not given to fbevents, shown to the admin.
+  assert.deepEqual((await s.api('GET', '/api/sources')).json.sources, []);
+  assert.equal((await s.api('GET', '/api/sources?status=pending', { token: null })).status, 401);
+  const [p] = (await s.api('GET', '/api/sources?status=pending')).json.sources;
+  assert.deepEqual([p.name, p.note, p.suggested_by, p.due], ['Klub Jazz', 'great gigs', 'Ania', false]);
+
+  // Events from a Page that isn't approved aren't linked to it.
+  await s.api('POST', '/api/events', { body: { events: [{ ...concert, sources: [{ kind: 'page', url: 'https://www.facebook.com/KlubJazz' }] }] } });
+  r = await s.api('PATCH', `/api/sources/${p.id}`, { body: { status: 'active', name: 'Klub Jazz Rybnik' } });
+  assert.deepEqual([r.json.status, r.json.name, r.json.due, r.json.events], ['active', 'Klub Jazz Rybnik', true, 0]);
+  assert.deepEqual((await s.api('GET', '/api/sources?status=pending')).json.sources, []);
+
+  // Rejecting, with a reason; approving or rejecting twice is a 404.
+  await suggest({ url: 'https://www.facebook.com/SomeShop' });
+  const [q] = (await s.api('GET', '/api/sources?status=pending')).json.sources;
+  r = await s.api('PATCH', `/api/sources/${q.id}`, { body: { status: 'rejected', reject_reason: 'a shop, no events' } });
+  assert.equal(r.json.status, 'rejected');
+  assert.equal((await s.api('PATCH', `/api/sources/${q.id}`, { body: { status: 'active' } })).status, 404);
+});
+
+test('suggestions of known Pages are refused, whatever their state', async (t) => {
+  const s = await startServer({ suggestionsPerHour: 100 });
+  t.after(s.close);
+  const suggest = (url) => s.api('POST', '/api/suggestions', { token: null, body: { url } });
+  const add = (url) => s.api('POST', '/api/sources', { body: { url } });
+
+  const { json: on } = await add('https://www.facebook.com/OnTheList');
+  const { json: paused } = await add('https://www.facebook.com/Paused');
+  await s.api('PATCH', `/api/sources/${paused.id}`, { body: { enabled: false } });
+  const { json: gone } = await add('https://www.facebook.com/profile.php?id=4242');
+  await s.api('POST', '/api/events', { body: { events: [], checked: [{ url: gone.url, final_url: 'https://www.facebook.com/TakenOff' }] } });
+  await s.api('DELETE', `/api/sources/${gone.id}`);
+  await suggest('https://www.facebook.com/Waiting');
+
+  for (const [url, words] of [
+    ['https://facebook.com/ontheList/', /already on the list/], // the address is not case-folded: different Page
+    ['https://www.facebook.com/OnTheList/events', /already on the list/],
+    ['https://www.facebook.com/Paused', /already on the list/],
+    ['https://www.facebook.com/Waiting?ref=x', /waiting for approval/],
+    ['https://www.facebook.com/profile.php?id=4242', /taken off/],
+    ['https://www.facebook.com/TakenOff', /taken off/], // the address Facebook redirected to
+  ]) {
+    const r = await suggest(url);
+    if (url.includes('ontheList')) { assert.equal(r.status, 201); continue; }
+    assert.equal(r.status, 409, url);
+    assert.match(r.json.error, words, url);
+  }
+
+  // A removed Page isn't given to fbevents, and the admin can put it back.
+  assert.deepEqual((await s.api('GET', '/api/sources')).json.sources.map((x) => x.url.split('/').pop()), ['OnTheList', 'Paused']);
+  const r = await add('https://www.facebook.com/TakenOff');
+  assert.equal(r.status, 201);
+  assert.equal(r.json.id, gone.id);
+});
+
+test('suggestions with a name like a known Page are flagged', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  await s.api('POST', '/api/sources', { body: { url: 'https://www.facebook.com/KlubOdysejaKultura', name: 'Klub Odyseja - Wydarzenia' } });
+  await s.api('POST', '/api/suggestions', { token: null, body: { url: 'https://www.facebook.com/odyseja.rybnik', name: 'Klub Odyseja' } });
+  await s.api('POST', '/api/suggestions', { token: null, body: { url: 'https://www.facebook.com/Other', name: 'Królestwo' } });
+  const pending = (await s.api('GET', '/api/sources?status=pending')).json.sources;
+  const byName = Object.fromEntries(pending.map((p) => [p.name, p.similar.map((x) => x.name)]));
+  assert.deepEqual(byName, { 'Klub Odyseja': ['Klub Odyseja - Wydarzenia'], 'Królestwo': [] });
+});
+
+test('suggestions are limited per address, and bots get nowhere', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  const codes = [];
+  for (let i = 0; i < 7; i++) {
+    codes.push((await s.api('POST', '/api/suggestions', { token: null, body: { url: `https://www.facebook.com/Venue${i}` } })).status);
+  }
+  assert.deepEqual(codes, [201, 201, 201, 201, 201, 429, 429]);
+
+  const s2 = await startServer();
+  t.after(s2.close);
+  const r = await s2.api('POST', '/api/suggestions', { token: null, body: { url: 'https://www.facebook.com/Spam', website: 'http://spam' } });
+  assert.equal(r.status, 201);
+  assert.deepEqual((await s2.api('GET', '/api/sources?status=pending')).json.sources, []);
+});

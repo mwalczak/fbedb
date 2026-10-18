@@ -14,4 +14,7 @@ See README.md for the API and deploy.
   `GET /api/sources` and reports `checked` Pages with `POST /api/events`.
 - Schema changes go in `Store.migrate()` (ALTER TABLE ADD COLUMN), never by recreating tables:
   the live database is on a volume.
+- Pages have a `status`: active (on the list, enabled or paused), pending (a visitor's suggestion),
+  rejected, removed. Deleting is soft (status removed) so repeats are caught; only active Pages are
+  given to fbevents or linked to events.
 - Tests: `npm test`.

@@ -14,7 +14,16 @@ function page({ publicList }) {
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
   .stats { color: var(--dim); margin: 0; }
-  #manage { white-space: nowrap; }
+  header .links { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
+  header .links .link { white-space: nowrap; }
+  dialog textarea { flex: 1 1 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; min-height: 4em; font: inherit; color: inherit; }
+  dialog label.full { flex: 1 1 100%; color: var(--dim); font-size: .9rem; }
+  .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+  .pending { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pending .meta { font-size: .85rem; }
+  .pending .warn { color: #c77700; font-size: .85rem; }
+  .pending .row { justify-content: flex-start; gap: 12px; margin-top: 4px; }
+  h4 { margin: 16px 0 4px; font-size: .9rem; text-transform: uppercase; letter-spacing: .04em; color: var(--dim); }
   button, input, select { font: inherit; color: inherit; }
   .link { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; }
   .filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
@@ -48,7 +57,7 @@ function page({ publicList }) {
 </head>
 <body>
 <main>
-  <header><p class="stats" id="stats"></p><button class="link" id="manage" type="button">Manage Pages</button></header>
+  <header><p class="stats" id="stats"></p><span class="links"><button class="link" id="suggestOpen" type="button">Suggest a Page</button><button class="link" id="manage" type="button">Manage Pages</button></span></header>
   <div class="filters">
     <select id="source" aria-label="Venue"></select>
     <button id="onlyNew" class="toggle" type="button" aria-pressed="false" title="Only events added in the last 3 days">New</button>
@@ -56,6 +65,21 @@ function page({ publicList }) {
   </div>
   <div id="list"><p class="msg">Loading…</p></div>
 </main>
+
+<dialog id="suggest">
+  <h3>Suggest a Page</h3>
+  <p class="msg" style="padding:0">A Facebook Page with events worth following. It's checked once the admin approves it.</p>
+  <form id="suggestForm">
+    <input id="sugUrl" type="url" placeholder="https://www.facebook.com/SomeVenue" required>
+    <input id="sugName" type="text" placeholder="Name (optional)" maxlength="200">
+    <textarea id="sugNote" placeholder="Why this venue? (optional)" maxlength="1000"></textarea>
+    <input id="sugBy" type="text" placeholder="Your name (optional)" maxlength="200">
+    <label class="trap" aria-hidden="true">Website <input id="sugWebsite" type="text" tabindex="-1" autocomplete="off"></label>
+    <button class="btn" type="submit">Suggest</button>
+  </form>
+  <p id="sugMsg" class="msg"></p>
+  <div class="row"><span></span><button class="btn" id="suggestClose" type="button">Close</button></div>
+</dialog>
 
 <dialog id="admin">
   <div id="login">
@@ -74,6 +98,7 @@ function page({ publicList }) {
       <button class="btn" type="submit">Add</button>
     </form>
     <p id="pagesMsg" class="msg"></p>
+    <div id="pendingBox" hidden><h4 id="pendingTitle">Waiting for approval</h4><div id="pending"></div><h4>On the list</h4></div>
     <div id="sources"></div>
     <div class="row"><button class="link" id="logout" type="button">Log out</button></div>
   </div>
@@ -246,13 +271,42 @@ $('logout').addEventListener('click', () => { setToken(''); showAdmin(); load();
 
 async function loadSources() {
   try {
-    const { sources } = await api('GET', '/api/sources');
-    $('pagesMsg').textContent = sources.length ? '' : 'No Pages yet. Add the first one above.';
+    const [{ sources }, { sources: pending }] = await Promise.all([
+      api('GET', '/api/sources'), api('GET', '/api/sources?status=pending')]);
+    $('pagesMsg').textContent = sources.length || pending.length ? '' : 'No Pages yet. Add the first one above.';
+    $('pendingBox').hidden = !pending.length;
+    $('pendingTitle').textContent = 'Waiting for approval (' + pending.length + ')';
+    $('pending').replaceChildren(...pending.map(pendingRow));
     $('sources').replaceChildren(...sources.map(sourceRow));
   } catch (e) {
     if (e.status === 401) { setToken(''); return showAdmin(); }
     $('pagesMsg').textContent = e.message;
   }
+}
+
+function pendingRow(s) {
+  const when = dayFmtShort.format(new Date(s.created_at));
+  const approve = el('button', { className: 'link', type: 'button', textContent: 'Approve' });
+  approve.addEventListener('click', async () => {
+    const name = prompt('Name for this Page', s.name || '');
+    if (name === null) return;
+    await api('PATCH', '/api/sources/' + s.id, { status: 'active', name }).catch(alertErr);
+    loadSources();
+  });
+  const reject = el('button', { className: 'link', type: 'button', textContent: 'Reject' });
+  reject.addEventListener('click', async () => {
+    const reason = prompt('Reject ' + (s.name || s.url) + '? Reason (optional):', '');
+    if (reason === null) return;
+    await api('PATCH', '/api/sources/' + s.id, { status: 'rejected', reject_reason: reason }).catch(alertErr);
+    loadSources();
+  });
+  return el('div', { className: 'pending' },
+    el('a', { href: s.url, target: '_blank', rel: 'noopener', textContent: s.name || s.url }),
+    el('div', { className: 'meta', textContent: 'suggested ' + when + (s.suggested_by ? ' by ' + s.suggested_by : '') + (s.name ? ' · ' + s.url : '') }),
+    s.note ? el('div', { className: 'meta', textContent: '“' + s.note + '”' }) : null,
+    s.similar && s.similar.length ? el('div', { className: 'warn', textContent: 'Similar name: '
+      + s.similar.map((o) => o.name + (o.status === 'pending' ? ' (also suggested)' : '')).join(', ') + ' — maybe the same venue?' }) : null,
+    el('div', { className: 'row' }, approve, reject));
 }
 
 function sourceRow(s) {
@@ -301,6 +355,26 @@ function schedule(s) {
 }
 
 function alertErr(e) { alert(e.message); }
+
+// ---- suggesting a Page (anyone) ----
+const sugDlg = $('suggest');
+$('suggestOpen').addEventListener('click', () => { $('sugMsg').textContent = ''; sugDlg.showModal(); });
+$('suggestClose').addEventListener('click', () => sugDlg.close());
+$('suggestForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('sugMsg').classList.remove('err');
+  try {
+    await api('POST', '/api/suggestions', {
+      url: $('sugUrl').value.trim(), name: $('sugName').value.trim(), note: $('sugNote').value.trim(),
+      by: $('sugBy').value.trim(), website: $('sugWebsite').value,
+    });
+    for (const id of ['sugUrl', 'sugName', 'sugNote']) $(id).value = '';
+    $('sugMsg').textContent = 'Thanks! The Page is checked once the admin approves it.';
+  } catch (err) {
+    $('sugMsg').classList.add('err');
+    $('sugMsg').textContent = err.message;
+  }
+});
 
 $('addForm').addEventListener('submit', async (e) => {
   e.preventDefault();

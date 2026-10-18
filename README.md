@@ -10,7 +10,14 @@ running at **https://fbedb.walczaki.com**.
   search, or press **New** for only the events first saved in the last 3 days (they carry a "new"
   tag). Filters stay in the address, so a filtered list can be bookmarked.
 - **Manage Pages** (log in with the token) lists the Facebook Pages fbevents checks: add,
-  rename, pause or remove them. Removing a Page keeps its events.
+  rename, pause or remove them. Removing a Page keeps its events, and the Page is remembered so
+  it isn't suggested again (adding it yourself puts it back).
+- **Suggest a Page:** anyone can suggest a Page (address, optional name, note and their name).
+  It waits under "Waiting for approval" in Manage Pages and isn't checked until you approve it;
+  you can also reject it with a reason. A suggestion is refused when the Page is already on the
+  list, paused, waiting, rejected or removed, also under the address Facebook redirects it to.
+  A suggestion whose name looks like a known Page's is flagged as a possible duplicate. No sign-in:
+  5 suggestions per hour per address, and a hidden field catches simple bots.
 - **Adaptive schedule:** a Page is checked on every run (twice a day) while it brings new events.
   Each check without a new event moves it one step slower: daily, every 2 days, every 4 days,
   weekly at most. One new event puts it back on every run. New Pages start on every run. Manage
@@ -24,16 +31,17 @@ persistent volume in k3s.
 
 ## API
 
-All requests except the event list need `Authorization: Bearer <TOKEN>`.
+All requests except the event list and suggestions need `Authorization: Bearer <TOKEN>`.
 
 | Request | What |
 | --- | --- |
+| `POST /api/suggestions` | Anyone: suggest a Page, `{"url", "name"?, "note"?, "by"?}` (5 per hour per address) |
 | `GET /api/events` | Events from today on (Warsaw time), closest first, and `last_collected` (when the newest event was saved). Public unless `PUBLIC_LIST=false` |
 | `POST /api/events` | Save events from a fbevents run (below) |
-| `GET /api/sources` | Facebook Pages, each with its schedule and `due` (check it on this run) |
+| `GET /api/sources` | Facebook Pages on the list, each with its schedule and `due` (check it on this run); `?status=pending`: suggestions, with `similar` names |
 | `POST /api/sources` | Add a Page: `{"url": "https://www.facebook.com/SomeVenue", "name": "…"}` |
-| `PATCH /api/sources/{id}` | `{"name": "…"}`, `{"enabled": false}`, `{"pinned": true}` (always check), `{"check_now": true}` |
-| `DELETE /api/sources/{id}` | Stop checking a Page (its events stay) |
+| `PATCH /api/sources/{id}` | `{"name": "…"}`, `{"enabled": false}`, `{"pinned": true}` (always check), `{"check_now": true}`; for a suggestion `{"status": "active"}` (approve) or `{"status": "rejected", "reject_reason": "…"}` |
+| `DELETE /api/sources/{id}` | Take a Page off the list (its events stay; it's remembered as removed) |
 | `GET /api/me` | 204 if the token is right |
 | `GET /healthz` | Health check |
 

@@ -12,10 +12,11 @@ function sameSecret(a, b) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-/** Allows short bursts but not a flood (here: of wrong tokens) from one address. */
+/** Allows `limit` requests per window from one address (wrong tokens, suggestions). */
 class RateLimiter {
-  constructor(perMinute, now = () => Date.now()) {
-    this.perMinute = perMinute;
+  constructor(limit, windowMs = 60000, now = () => Date.now()) {
+    this.limit = limit;
+    this.windowMs = windowMs;
     this.now = now;
     this.buckets = new Map();
   }
@@ -23,8 +24,8 @@ class RateLimiter {
   allow(key) {
     const t = this.now();
     let b = this.buckets.get(key);
-    if (!b) b = { tokens: this.perMinute, at: t };
-    b.tokens = Math.min(this.perMinute, b.tokens + ((t - b.at) / 60000) * this.perMinute);
+    if (!b) b = { tokens: this.limit, at: t };
+    b.tokens = Math.min(this.limit, b.tokens + ((t - b.at) / this.windowMs) * this.limit);
     b.at = t;
     const ok = b.tokens >= 1;
     if (ok) b.tokens -= 1;
@@ -69,8 +70,9 @@ async function readJson(req) {
   return body;
 }
 
-function createApp({ store, token, publicList = true, now = () => new Date() }) {
+function createApp({ store, token, publicList = true, suggestionsPerHour = 5, now = () => new Date() }) {
   const wrongTokens = new RateLimiter(10);
+  const suggestions = new RateLimiter(suggestionsPerHour, 3600_000);
 
   function send(res, status, body) {
     if (status === 204) {
@@ -107,6 +109,18 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
     return send(res, 200, result);
   }
 
+  /** Anyone may suggest a Page; it waits for the admin's approval. */
+  async function suggest(req, res) {
+    if (!suggestions.allow(clientIp(req))) return fail(res, 429, 'Too many suggestions from here, try again in an hour.');
+    const body = await readJson(req);
+    // A field people don't see: bots fill it in. Answer as if it worked.
+    if (body.website) return send(res, 201, { status: 'pending' });
+    const result = store.suggestSource(body, now());
+    if (result.error) return send(res, result.status, { error: result.error, existing: result.existing });
+    console.log(`suggested: ${result.source.url}`);
+    return send(res, 201, { status: 'pending', url: result.source.url });
+  }
+
   async function addSource(req, res) {
     const body = await readJson(req);
     const result = store.addSource(body.url, typeof body.name === 'string' ? body.name.trim() : null, now());
@@ -136,13 +150,17 @@ function createApp({ store, token, publicList = true, now = () => new Date() }) 
         if (!publicList && !authorized(req, res)) return undefined;
         return send(res, 200, { events: store.events({ now: now() }), last_collected: store.lastCollected() });
       }
+      if (path === '/api/suggestions' && req.method === 'POST') return await suggest(req, res);
       if (!path.startsWith('/api/')) return fail(res, 404, 'not found');
 
       // Everything else needs the token.
       if (!authorized(req, res)) return undefined;
       if (path === '/api/me' && req.method === 'GET') return send(res, 204);
       if (path === '/api/events' && req.method === 'POST') return await postEvents(req, res);
-      if (path === '/api/sources' && req.method === 'GET') return send(res, 200, { sources: store.sources(now()) });
+      if (path === '/api/sources' && req.method === 'GET') {
+        const status = url.searchParams.get('status') === 'pending' ? 'pending' : 'active';
+        return send(res, 200, { sources: store.sources(now(), status) });
+      }
       if (path === '/api/sources' && req.method === 'POST') return await addSource(req, res);
       const m = path.match(/^\/api\/sources\/(\d+)$/);
       if (m && req.method === 'PATCH') return await updateSource(req, res, Number(m[1]));

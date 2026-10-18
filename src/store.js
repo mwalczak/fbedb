@@ -85,11 +85,34 @@ class Store {
       lastCollected: this.db.prepare('SELECT MAX(first_seen) AS t FROM events'),
       sources: this.db.prepare(`
         SELECT s.id, s.url, s.alias_url, s.name, s.enabled, s.pinned, s.level, s.last_checked_at,
-               s.last_change_at, s.next_check_at, s.created_at, COUNT(es.event_id) AS events
+               s.last_change_at, s.next_check_at, s.created_at, s.status, s.note, s.suggested_by,
+               COUNT(es.event_id) AS events
         FROM sources s LEFT JOIN event_sources es ON es.source_id = s.id
+        WHERE s.status = :status
         GROUP BY s.id ORDER BY COALESCE(s.name, s.url) COLLATE NOCASE`),
-      sourceByUrl: this.db.prepare(
-        'SELECT id, name, level FROM sources WHERE url = :url OR alias_url = :url ORDER BY url = :url DESC LIMIT 1'),
+      // Any status: for duplicate checks.
+      anyByUrl: this.db.prepare(
+        'SELECT id, name, status FROM sources WHERE url = :url OR alias_url = :url ORDER BY url = :url DESC LIMIT 1'),
+      // Only Pages on the list: what fbevents' events and checks are matched to.
+      sourceByUrl: this.db.prepare(`
+        SELECT id, name, level FROM sources WHERE status = 'active' AND (url = :url OR alias_url = :url)
+        ORDER BY url = :url DESC LIMIT 1`),
+      namesForDuplicates: this.db.prepare(
+        "SELECT id, url, name, status FROM sources WHERE status IN ('active', 'pending') AND name IS NOT NULL"),
+      suggest: this.db.prepare(`
+        INSERT INTO sources (url, name, enabled, created_at, status, note, suggested_by)
+        VALUES (:url, :name, 1, :now, 'pending', :note, :by)`),
+      reactivate: this.db.prepare(`
+        UPDATE sources SET status = 'active', enabled = 1, name = COALESCE(:name, name), level = 0,
+          next_check_at = NULL, reviewed_at = :now, reject_reason = NULL WHERE id = :id`),
+      approve: this.db.prepare(`
+        UPDATE sources SET status = 'active', enabled = 1, name = COALESCE(:name, name), level = 0,
+          next_check_at = NULL, reviewed_at = :now WHERE id = :id AND status = 'pending'`),
+      review: this.db.prepare(`
+        UPDATE sources SET status = :status, reviewed_at = :now, reject_reason = :reason
+        WHERE id = :id AND status = 'pending'`),
+      remove: this.db.prepare("UPDATE sources SET status = 'removed', enabled = 0 WHERE id = ? AND status <> 'removed'"),
+      unlinkSource: this.db.prepare('DELETE FROM event_sources WHERE source_id = ?'),
       checked: this.db.prepare(`
         UPDATE sources SET last_checked_at = :now, level = :level, next_check_at = :next,
           last_change_at = CASE WHEN :changed THEN :now ELSE last_change_at END,
@@ -101,7 +124,6 @@ class Store {
       updateSource: this.db.prepare(
         'UPDATE sources SET name = COALESCE(:name, name), enabled = COALESCE(:enabled, enabled) WHERE id = :id'),
       nameSourceIfEmpty: this.db.prepare("UPDATE sources SET name = ? WHERE id = ? AND COALESCE(name, '') = ''"),
-      deleteSource: this.db.prepare('DELETE FROM sources WHERE id = ?'),
       eventByFbId: this.db.prepare('SELECT id FROM events WHERE fb_id = ?'),
       insertEvent: this.db.prepare(`
         INSERT INTO events (fb_id, ${EVENT_FIELDS.join(', ')}, online, nearby, first_seen, last_seen)
@@ -137,6 +159,13 @@ class Store {
       last_checked_at: 'TEXT',
       last_change_at: 'TEXT', // last check that brought a new event
       next_check_at: 'TEXT', // NULL: due on the next run
+      // active: on the list (enabled or paused); pending: suggested, waiting for approval;
+      // rejected: suggestion turned down; removed: taken off the list. Kept to catch repeats.
+      status: "TEXT NOT NULL DEFAULT 'active'",
+      note: 'TEXT', // the suggester's "why this venue"
+      suggested_by: 'TEXT',
+      reject_reason: 'TEXT',
+      reviewed_at: 'TEXT',
     };
     for (const [col, type] of Object.entries(add)) {
       if (!have.has(col)) this.db.exec(`ALTER TABLE sources ADD COLUMN ${col} ${type}`);
@@ -156,28 +185,86 @@ class Store {
 
   // ---- sources (Facebook Pages fbevents should check) ----
 
-  /** The Pages, with their check schedule; `due` = to be checked on the next run. */
-  sources(now = new Date()) {
-    return this.q.sources.all().map((s) => ({
+  /**
+   * The Pages on the list (status "active", enabled or paused) with their check schedule;
+   * `due` = to be checked on the next run. With status "pending": suggestions to review.
+   */
+  sources(now = new Date(), status = 'active') {
+    return this.q.sources.all({ status }).map((s) => ({
       ...s,
       enabled: Boolean(s.enabled),
       pinned: Boolean(s.pinned),
       interval_days: INTERVAL_DAYS[s.level] ?? INTERVAL_DAYS.at(-1),
-      due: Boolean(s.enabled) && (Boolean(s.pinned) || !s.next_check_at || Date.parse(s.next_check_at) <= now.getTime()),
+      due: s.status === 'active' && Boolean(s.enabled)
+        && (Boolean(s.pinned) || !s.next_check_at || Date.parse(s.next_check_at) <= now.getTime()),
+      ...(status === 'pending' ? { similar: this.similarNames(s) } : {}),
     }));
+  }
+
+  /** Other Pages (on the list or suggested) whose name looks like this one's: maybe the same venue. */
+  similarNames(source) {
+    const key = nameKey(source.name);
+    if (key.length < 4) return [];
+    return this.q.namesForDuplicates.all()
+      .filter((o) => o.id !== source.id)
+      .filter((o) => {
+        const k = nameKey(o.name);
+        return k.length >= 4 && (k === key || k.includes(key) || key.includes(k));
+      })
+      .map(({ id, url, name, status }) => ({ id, url, name, status }));
+  }
+
+  /**
+   * A visitor's suggestion: saved as "pending" until the admin approves it. Refused when the
+   * Page (or the address Facebook redirects it to) is already known, in whatever state.
+   */
+  suggestSource({ url, name, note, by }, now = new Date()) {
+    const clean = pageUrl(url);
+    if (!clean) return { status: 422, error: 'This is not a Facebook Page address.' };
+    const known = this.q.anyByUrl.get({ url: clean });
+    if (known) {
+      const why = {
+        active: 'This Page is already on the list.',
+        pending: 'This Page was already suggested and is waiting for approval.',
+        rejected: 'This Page was suggested before and not taken on.',
+        removed: 'This Page was on the list before and was taken off.',
+      }[known.status];
+      return { status: 409, error: why, existing: { name: known.name, status: known.status } };
+    }
+    const text = (v, max) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+    const { lastInsertRowid } = this.q.suggest.run({
+      url: clean, name: text(name, 200), note: text(note, 1000), by: text(by, 200), now: now.toISOString(),
+    });
+    return { source: this.sources(now, 'pending').find((s) => s.id === Number(lastInsertRowid)) };
   }
 
   /** Adds a Page; returns {source} or {error, status}. */
   addSource(url, name, now = new Date()) {
     const clean = pageUrl(url);
     if (!clean) return { status: 422, error: 'not a Facebook Page address' };
-    if (this.q.sourceByUrl.get({ url: clean })) return { status: 409, error: 'this Page is already on the list' };
+    const known = this.q.anyByUrl.get({ url: clean });
+    if (known && known.status === 'active') return { status: 409, error: 'this Page is already on the list' };
+    if (known) { // a suggestion, or a Page rejected or removed earlier: (back) on the list
+      this.q.reactivate.run({ id: known.id, name: name || null, now: now.toISOString() });
+      return { source: this.sources(now).find((s) => s.id === known.id) };
+    }
     const { lastInsertRowid } = this.q.addSource.run(clean, name || null, now.toISOString());
     return { source: this.sources().find((s) => s.id === Number(lastInsertRowid)) };
   }
 
-  /** name, enabled, pinned ("always check"), check_now (due on the next run). */
-  updateSource(id, { name, enabled, pinned, check_now: checkNow }, now = new Date()) {
+  /**
+   * name, enabled, pinned ("always check"), check_now (due on the next run); for a suggestion
+   * also status "active" (approve) or "rejected" with reject_reason.
+   */
+  updateSource(id, { name, enabled, pinned, check_now: checkNow, status, reject_reason: reason }, now = new Date()) {
+    if (status === 'active' || status === 'rejected') {
+      const done = status === 'active'
+        ? this.q.approve.run({ id, name: typeof name === 'string' ? name.trim() || null : null, now: now.toISOString() })
+        : this.q.review.run({ id, status, now: now.toISOString(),
+          reason: typeof reason === 'string' ? reason.trim().slice(0, 500) || null : null });
+      if (!done.changes) return null;
+      return this.sources(now, status).find((s) => s.id === id) || { id, status };
+    }
     const changes = this.q.updateSource.run({
       id,
       name: typeof name === 'string' ? name.trim() || null : null,
@@ -186,11 +273,15 @@ class Store {
     if (!changes) return null;
     if (typeof pinned === 'boolean') this.q.pin.run(Number(pinned), id);
     if (checkNow === true) this.q.checkNow.run(id);
-    return this.sources(now).find((s) => s.id === id);
+    return this.sources(now).find((s) => s.id === id)
+      || this.sources(now, 'pending').find((s) => s.id === id) || null;
   }
 
+  /** Takes a Page off the list. Its events stay; it's remembered so it isn't suggested again. */
   deleteSource(id) {
-    return this.q.deleteSource.run(id).changes > 0;
+    if (!this.q.remove.run(id).changes) return false;
+    this.q.unlinkSource.run(id);
+    return true;
   }
 
   /**
@@ -328,6 +419,12 @@ class Store {
   close() {
     this.db.close();
   }
+}
+
+/** "Klub Odyseja – Wydarzenia" -> "klubodysejawydarzenia": for spotting the same venue twice. */
+function nameKey(name) {
+  return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/ł/gi, 'l')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
 function clean(field, v) {
