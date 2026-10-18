@@ -168,6 +168,9 @@ test('the page is served and the API 404s politely', async (t) => {
   t.after(s.close);
   const page = await s.api('GET', '/', { token: null });
   assert.match(page.text, /<title>Events<\/title>/);
+  // The script lives in a template string, where a stray backslash breaks it: it must parse.
+  const script = page.text.split('<script>')[1].split('</script>')[0];
+  assert.doesNotThrow(() => new Function(script));
   assert.match(page.text, /const PUBLIC_LIST = true;/);
   assert.equal((await s.api('GET', '/healthz', { token: null })).text, 'ok\n');
   assert.equal((await s.api('GET', '/api/nope')).status, 404);
@@ -359,4 +362,24 @@ test('suggestions are limited per address, and bots get nowhere', async (t) => {
   const r = await s2.api('POST', '/api/suggestions', { token: null, body: { url: 'https://www.facebook.com/Spam', website: 'http://spam' } });
   assert.equal(r.status, 201);
   assert.deepEqual((await s2.api('GET', '/api/sources?status=pending')).json.sources, []);
+});
+
+test('everyone can see which Pages are checked or waiting, without private details', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  await s.api('POST', '/api/sources', { body: { url: 'https://www.facebook.com/Zebra', name: 'Zebra Club' } });
+  const { json: paused } = await s.api('POST', '/api/sources', { body: { url: 'https://www.facebook.com/Aula', name: 'Aula' } });
+  await s.api('PATCH', `/api/sources/${paused.id}`, { body: { enabled: false } });
+  await s.api('POST', '/api/suggestions', { token: null, body: { url: 'https://www.facebook.com/Mlyn', name: 'Młyn', note: 'secret note', by: 'Ania' } });
+  const { json: gone } = await s.api('POST', '/api/sources', { body: { url: 'https://www.facebook.com/Gone' } });
+  await s.api('DELETE', `/api/sources/${gone.id}`);
+
+  const r = await s.api('GET', '/api/pages', { token: null });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.pages.map((p) => [p.name, p.status]), [['Aula', 'paused'], ['Młyn', 'pending'], ['Zebra Club', 'active']]);
+  assert.deepEqual(Object.keys(r.json.pages[1]).sort(), ['events', 'id', 'name', 'status', 'url']);
+
+  const priv = await startServer({ publicList: false });
+  t.after(priv.close);
+  assert.equal((await priv.api('GET', '/api/pages', { token: null })).status, 401);
 });

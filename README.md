@@ -9,6 +9,10 @@ running at **https://fbedb.walczaki.com**.
   venue (the Facebook Page an event came from, or "Nearby" for events from the town page) or
   search, or press **New** for only the events first saved in the last 3 days (they carry a "new"
   tag). Filters stay in the address, so a filtered list can be bookmarked.
+- The **☰ menu** on top has **Pages we check**, **Suggest a Page** and **Manage Pages**.
+- **Pages we check** (anyone): the Pages on the list and the ones waiting for approval, with
+  search, so people can look before suggesting. "show on the list" filters the events by that Page;
+  "Not here? Suggest a Page" opens the suggestion form with the search filled in.
 - **Manage Pages** (log in with the token) lists the Facebook Pages fbevents checks: add,
   rename, pause or remove them. Removing a Page keeps its events, and the Page is remembered so
   it isn't suggested again (adding it yourself puts it back).
@@ -31,10 +35,11 @@ persistent volume in k3s.
 
 ## API
 
-All requests except the event list and suggestions need `Authorization: Bearer <TOKEN>`.
+All requests except the event list, the Pages list and suggestions need `Authorization: Bearer <TOKEN>`.
 
 | Request | What |
 | --- | --- |
+| `GET /api/pages` | Pages on the list and waiting for approval: `id`, `name`, `url`, `events`, `status` (active, paused, pending). Public unless `PUBLIC_LIST=false` |
 | `POST /api/suggestions` | Anyone: suggest a Page, `{"url", "name"?, "note"?, "by"?}` (5 per hour per address) |
 | `GET /api/events` | Events from today on (Warsaw time), closest first, and `last_collected` (when the newest event was saved). Public unless `PUBLIC_LIST=false` |
 | `POST /api/events` | Save events from a fbevents run (below) |

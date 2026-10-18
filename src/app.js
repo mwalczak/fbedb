@@ -151,6 +151,10 @@ function createApp({ store, token, publicList = true, suggestionsPerHour = 5, no
         return send(res, 200, { events: store.events({ now: now() }), last_collected: store.lastCollected() });
       }
       if (path === '/api/suggestions' && req.method === 'POST') return await suggest(req, res);
+      if (path === '/api/pages' && req.method === 'GET') {
+        if (!publicList && !authorized(req, res)) return undefined;
+        return send(res, 200, { pages: store.publicPages() });
+      }
       if (!path.startsWith('/api/')) return fail(res, 404, 'not found');
 
       // Everything else needs the token.

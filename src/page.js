@@ -14,8 +14,17 @@ function page({ publicList }) {
   main { max-width: 760px; margin: 0 auto; padding: 16px; }
   header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 4px 0 12px; }
   .stats { color: var(--dim); margin: 0; }
-  header .links { display: flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
-  header .links .link { white-space: nowrap; }
+  header { align-items: center; }
+  .menu { position: relative; }
+  .burger { font-size: 1.4rem; line-height: 1; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; cursor: pointer; }
+  #menuList { position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; list-style: none; margin: 0; padding: 4px 0;
+    min-width: 190px; background: Canvas; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgb(0 0 0 / .18); }
+  #menuList button { display: block; width: 100%; text-align: left; padding: 10px 14px; border: 0; background: none; cursor: pointer; white-space: nowrap; }
+  #menuList button:hover, #menuList button:focus-visible { background: color-mix(in srgb, CanvasText 8%, Canvas); }
+  #pagesSearch { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; margin: 4px 0 8px; }
+  .pg { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pg .meta { color: var(--dim); font-size: .85rem; }
+  .pg.waiting a, .pg.paused a { opacity: .75; }
   dialog textarea { flex: 1 1 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; min-height: 4em; font: inherit; color: inherit; }
   dialog label.full { flex: 1 1 100%; color: var(--dim); font-size: .9rem; }
   .trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
@@ -57,7 +66,16 @@ function page({ publicList }) {
 </head>
 <body>
 <main>
-  <header><p class="stats" id="stats"></p><span class="links"><button class="link" id="suggestOpen" type="button">Suggest a Page</button><button class="link" id="manage" type="button">Manage Pages</button></span></header>
+  <header><p class="stats" id="stats"></p>
+    <nav class="menu">
+      <button id="menuBtn" class="burger" type="button" aria-label="Menu" aria-expanded="false" aria-controls="menuList">&#9776;</button>
+      <ul id="menuList" hidden>
+        <li><button type="button" id="pagesOpen">Pages we check</button></li>
+        <li><button type="button" id="suggestOpen">Suggest a Page</button></li>
+        <li><button type="button" id="manage">Manage Pages</button></li>
+      </ul>
+    </nav>
+  </header>
   <div class="filters">
     <select id="source" aria-label="Venue"></select>
     <button id="onlyNew" class="toggle" type="button" aria-pressed="false" title="Only events added in the last 3 days">New</button>
@@ -66,9 +84,18 @@ function page({ publicList }) {
   <div id="list"><p class="msg">Loading…</p></div>
 </main>
 
+<dialog id="pages">
+  <h3>Pages we check</h3>
+  <input id="pagesSearch" type="search" placeholder="Search a venue or address" aria-label="Search Pages">
+  <p id="pagesCount" class="msg" style="padding:0"></p>
+  <div id="pagesList"></div>
+  <div class="row"><button class="link" id="pagesSuggest" type="button">Not here? Suggest a Page</button><button class="btn" id="pagesClose" type="button">Close</button></div>
+</dialog>
+
 <dialog id="suggest">
   <h3>Suggest a Page</h3>
-  <p class="msg" style="padding:0">A Facebook Page with events worth following. It's checked once the admin approves it.</p>
+  <p class="msg" style="padding:0">A Facebook Page with events worth following. It's checked once the admin approves it.
+    <button class="link" id="sugSeePages" type="button">See the Pages we already check</button>.</p>
   <form id="suggestForm">
     <input id="sugUrl" type="url" placeholder="https://www.facebook.com/SomeVenue" required>
     <input id="sugName" type="text" placeholder="Name (optional)" maxlength="200">
@@ -242,7 +269,11 @@ $('onlyNew').addEventListener('click', () => {
 
 // ---- managing Pages ----
 const dlg = $('admin');
-$('manage').addEventListener('click', () => { dlg.showModal(); showAdmin(); });
+$('manage').addEventListener('click', () => {
+  for (const d of document.querySelectorAll('dialog[open]')) d.close();
+  dlg.showModal();
+  showAdmin();
+});
 $('close').addEventListener('click', () => dlg.close());
 
 async function showAdmin() {
@@ -356,9 +387,84 @@ function schedule(s) {
 
 function alertErr(e) { alert(e.message); }
 
+// ---- menu ----
+const menuBtn = $('menuBtn');
+const menuList = $('menuList');
+function menu(open) {
+  menuList.hidden = !open;
+  menuBtn.setAttribute('aria-expanded', String(open));
+}
+menuBtn.addEventListener('click', (e) => { e.stopPropagation(); menu(menuList.hidden); });
+document.addEventListener('click', (e) => { if (!menuList.hidden && !menuList.contains(e.target)) menu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') menu(false); });
+menuList.addEventListener('click', () => menu(false));
+
+// ---- the Pages we check (anyone): look before suggesting ----
+const pagesDlg = $('pages');
+let pages = [];
+async function openPages() {
+  for (const d of document.querySelectorAll('dialog[open]')) d.close();
+  $('pagesSearch').value = '';
+  $('pagesList').replaceChildren(el('p', { className: 'msg', textContent: 'Loading…' }));
+  pagesDlg.showModal();
+  try {
+    pages = (await api('GET', '/api/pages')).pages;
+    renderPages();
+  } catch (e) {
+    $('pagesList').replaceChildren(el('p', { className: 'msg err', textContent: 'Could not load the Pages: ' + e.message }));
+  }
+}
+function renderPages() {
+  const q = $('pagesSearch').value.trim().toLowerCase();
+  const shown = pages.filter((p) => !q || ((p.name || '') + ' ' + p.url).toLowerCase().includes(q));
+  const on = pages.filter((p) => p.status !== 'pending').length;
+  const waiting = pages.length - on;
+  $('pagesCount').textContent = q ? shown.length + ' of ' + pages.length + ' match'
+    : on + ' Pages' + (waiting ? ', ' + waiting + ' waiting for approval' : '');
+  if (!shown.length) {
+    return $('pagesList').replaceChildren(el('p', { className: 'msg', textContent: q
+      ? 'No Page matches “' + $('pagesSearch').value.trim() + '”. You can suggest it.' : 'No Pages yet.' }));
+  }
+  $('pagesList').replaceChildren(...shown.map((p) => {
+    const status = p.status === 'pending' ? 'waiting for approval' : p.status === 'paused' ? 'paused'
+      : p.events + (p.events === 1 ? ' event' : ' events');
+    const meta = el('div', { className: 'meta' }, status);
+    if (p.status === 'active' && p.events) {
+      const show = el('button', { className: 'link', type: 'button', textContent: 'show on the list' });
+      show.addEventListener('click', () => {
+        pagesDlg.close();
+        if (![...$('source').options].some((o) => o.value === String(p.id))) {
+          $('source').append(el('option', { value: String(p.id), textContent: p.name || p.url }));
+        }
+        $('source').value = String(p.id);
+        saveFilters();
+        render();
+      });
+      meta.append(' · ', show);
+    }
+    return el('div', { className: 'pg' + (p.status === 'pending' ? ' waiting' : p.status === 'paused' ? ' paused' : '') },
+      el('a', { href: p.url, target: '_blank', rel: 'noopener', textContent: p.name || p.url }), meta);
+  }));
+}
+$('pagesOpen').addEventListener('click', openPages);
+$('pagesSearch').addEventListener('input', renderPages);
+$('pagesClose').addEventListener('click', () => pagesDlg.close());
+$('pagesSuggest').addEventListener('click', () => {
+  const q = $('pagesSearch').value.trim();
+  pagesDlg.close();
+  openSuggest();
+  if (q.startsWith('http')) $('sugUrl').value = q; else if (q) $('sugName').value = q;
+});
+
 // ---- suggesting a Page (anyone) ----
 const sugDlg = $('suggest');
-$('suggestOpen').addEventListener('click', () => { $('sugMsg').textContent = ''; sugDlg.showModal(); });
+function openSuggest() {
+  for (const d of document.querySelectorAll('dialog[open]')) d.close();
+  $('sugMsg').textContent = '';
+  sugDlg.showModal();
+}
+$('suggestOpen').addEventListener('click', openSuggest);
+$('sugSeePages').addEventListener('click', openPages);
 $('suggestClose').addEventListener('click', () => sugDlg.close());
 $('suggestForm').addEventListener('submit', async (e) => {
   e.preventDefault();

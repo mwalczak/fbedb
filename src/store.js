@@ -201,6 +201,18 @@ class Store {
     }));
   }
 
+  /**
+   * For everyone: the Pages on the list and the ones waiting for approval, so visitors can see
+   * what's there before suggesting. Names and addresses only (not who suggested what).
+   */
+  publicPages() {
+    const pick = (s, status) => ({ id: s.id, name: s.name, url: s.url, events: s.events, status });
+    return [
+      ...this.q.sources.all({ status: 'active' }).map((s) => pick(s, s.enabled ? 'active' : 'paused')),
+      ...this.q.sources.all({ status: 'pending' }).map((s) => pick(s, 'pending')),
+    ].sort((a, b) => (a.name || a.url).localeCompare(b.name || b.url, 'pl'));
+  }
+
   /** Other Pages (on the list or suggested) whose name looks like this one's: maybe the same venue. */
   similarNames(source) {
     const key = nameKey(source.name);
