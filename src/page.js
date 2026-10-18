@@ -147,7 +147,7 @@ function page({ publicList }) {
     </form>
     <p id="loginMsg" class="msg"></p>
   </div>
-  <div id="pages" hidden>
+  <div id="adminPages" hidden>
     <h3>Facebook Pages to check</h3>
     <form id="addForm">
       <input id="newUrl" type="url" placeholder="https://www.facebook.com/SomeVenue" required>
@@ -307,7 +307,7 @@ $('close').addEventListener('click', () => dlg.close());
 async function showAdmin() {
   const loggedIn = Boolean(getToken());
   $('login').hidden = loggedIn;
-  $('pages').hidden = !loggedIn;
+  $('adminPages').hidden = !loggedIn;
   if (loggedIn) await loadSources();
 }
 

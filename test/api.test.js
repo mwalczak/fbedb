@@ -168,6 +168,9 @@ test('the page is served and the API 404s politely', async (t) => {
   t.after(s.close);
   const page = await s.api('GET', '/', { token: null });
   assert.match(page.text, /<title>Events<\/title>/);
+  // Every id once: a repeated id made the script show and hide the wrong popup.
+  const ids = [...page.text.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids.filter((id, i) => ids.indexOf(id) !== i), []);
   // The script lives in a template string, where a stray backslash breaks it: it must parse.
   const script = page.text.split('<script>')[1].split('</script>')[0];
   assert.doesNotThrow(() => new Function(script));
