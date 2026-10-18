@@ -1,6 +1,6 @@
 name: Maintenance
 
-# One-off database fixes inside the running fbedb pod. Startable from the Actions tab or from a
+# One-off database jobs inside the running fbedb pod (fixes, and read-only checks). Startable from the Actions tab or from a
 # Claude session through the GitHub API.
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
       task:
         description: "What to do"
         type: choice
-        options: [unlink-overlinked]
+        options: [unlink-overlinked, list-pending]
         default: unlink-overlinked
       max_pages:
         description: "unlink-overlinked: events linked to more Pages than this lose their Page links"
@@ -38,5 +38,7 @@ jobs:
         run: |
           flag=""
           [ "$DRY_RUN" = "true" ] && flag="--dry-run"
+          # list-pending only reads; it takes no arguments
+          [ "$TASK" = "list-pending" ] && { MAX_PAGES=""; flag=""; }
           ssh debian@${{ secrets.VPS_HOST }} "KUBECONFIG=\$HOME/.kube/config kubectl exec deploy/fbedb -- \
             node --disable-warning=ExperimentalWarning maintenance.js $(printf '%q %q %q' "$TASK" "$MAX_PAGES" "$flag")"

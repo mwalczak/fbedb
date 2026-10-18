@@ -98,6 +98,8 @@ The **Maintenance** workflow (Actions tab) runs one-off database fixes inside th
 - `unlink-overlinked`: events linked to more than `max_pages` Pages lose their Page links (the
   events stay). For events fbevents picked up from Facebook's own menus instead of a Page; the
   next fbevents run links them again to the Pages that really list them. Try a dry run first.
+- `list-pending`: read-only; lists the suggested Pages waiting for approval (who, when, note,
+  similar names), e.g. for checking from somewhere without the token.
 
 ## Local development
 
