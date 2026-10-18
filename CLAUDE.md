@@ -18,3 +18,8 @@ See README.md for the API and deploy.
   rejected, removed. Deleting is soft (status removed) so repeats are caught; only active Pages are
   given to fbevents or linked to events.
 - Tests: `npm test`.
+- Issues are tracked in PMO (https://pmo.walczaki.com, project `FBEDB`, covering fbedb and
+  fbevents; API docs at /docs, auth comes from the session's network secret). Always keep an issue's
+  status current: `in_progress` when work starts, `done` once it's deployed and checked (or
+  `wont_fix`/`duplicate`), with a short "Implemented" note appended to the description saying what
+  was built, the decisions taken and what's left out.
