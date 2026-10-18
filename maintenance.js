@@ -1,10 +1,12 @@
 // One-off database jobs, run inside the pod by the "Maintenance" workflow:
 //   node maintenance.js unlink-overlinked <max pages> [--dry-run]
 //   node maintenance.js list-pending
-const { Store } = require('./src/store');
+//   node maintenance.js approve <page url>        (a suggestion waiting for approval)
+//   node maintenance.js reject <page url> [reason]
+const { Store, pageUrl } = require('./src/store');
 
 const [cmd, arg, flag] = process.argv.slice(2);
-const commands = ['unlink-overlinked', 'list-pending'];
+const commands = ['unlink-overlinked', 'list-pending', 'approve', 'reject'];
 if (!commands.includes(cmd)) {
   console.error(`unknown command "${cmd || ''}"; try one of: ${commands.join(', ')}`);
   process.exit(2);
@@ -22,6 +24,19 @@ try {
       console.log(`${rows.length} events linked to more than ${max} Pages`
         + (dryRun ? ' (dry run, nothing changed)' : '; their Page links are removed'));
       for (const r of rows) console.log(`  ${r.pages} Pages: ${r.name || '(no name)'} (https://www.facebook.com/events/${r.fb_id}/)`);
+    }
+  } else if (cmd === 'approve' || cmd === 'reject') {
+    // The same as the Approve / Reject buttons in Manage Pages.
+    const url = pageUrl(arg);
+    const s = url && store.sources(new Date(), 'pending').find((p) => p.url === url);
+    if (!s) {
+      console.error(`no suggestion waiting for ${arg || '(no address given)'}; see list-pending`);
+      process.exitCode = 1;
+    } else {
+      store.updateSource(s.id, cmd === 'approve' ? { status: 'active' } : { status: 'rejected', reject_reason: flag || null });
+      console.log(cmd === 'approve'
+        ? `approved: ${s.name || s.url} (${s.url}); it's checked on the next fbevents run`
+        : `rejected: ${s.name || s.url} (${s.url})${flag ? `: ${flag}` : ''}`);
     }
   } else {
     // Read-only: suggestions waiting for approval.

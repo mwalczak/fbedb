@@ -100,6 +100,8 @@ The **Maintenance** workflow (Actions tab) runs one-off database fixes inside th
   next fbevents run links them again to the Pages that really list them. Try a dry run first.
 - `list-pending`: read-only; lists the suggested Pages waiting for approval (who, when, note,
   similar names), e.g. for checking from somewhere without the token.
+- `approve` / `reject` with `page_url` (and an optional `reason`): the same as the buttons in
+  Manage Pages, for one suggestion.
 
 ## Local development
 

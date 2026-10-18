@@ -8,12 +8,20 @@ on:
       task:
         description: "What to do"
         type: choice
-        options: [unlink-overlinked, list-pending]
+        options: [unlink-overlinked, list-pending, approve, reject]
         default: unlink-overlinked
       max_pages:
         description: "unlink-overlinked: events linked to more Pages than this lose their Page links"
         type: number
         default: 5
+      page_url:
+        description: "approve / reject: the suggested Page's address (see list-pending)"
+        type: string
+        default: ""
+      reason:
+        description: "reject: why (optional)"
+        type: string
+        default: ""
       dry_run:
         description: "Dry run: only list what would change"
         type: boolean
@@ -35,10 +43,16 @@ jobs:
           TASK: ${{ inputs.task }}
           MAX_PAGES: ${{ inputs.max_pages }}
           DRY_RUN: ${{ inputs.dry_run }}
+          PAGE_URL: ${{ inputs.page_url }}
+          REASON: ${{ inputs.reason }}
         run: |
           flag=""
           [ "$DRY_RUN" = "true" ] && flag="--dry-run"
-          # list-pending only reads; it takes no arguments
-          [ "$TASK" = "list-pending" ] && { MAX_PAGES=""; flag=""; }
+          case "$TASK" in
+            list-pending) set -- ;;                       # read-only, no arguments
+            approve) set -- "$PAGE_URL" ;;
+            reject) set -- "$PAGE_URL" "$REASON" ;;
+            *) set -- "$MAX_PAGES" "$flag" ;;
+          esac
           ssh debian@${{ secrets.VPS_HOST }} "KUBECONFIG=\$HOME/.kube/config kubectl exec deploy/fbedb -- \
-            node --disable-warning=ExperimentalWarning maintenance.js $(printf '%q %q %q' "$TASK" "$MAX_PAGES" "$flag")"
+            node --disable-warning=ExperimentalWarning maintenance.js $(printf '%q ' "$TASK" "$@")"
