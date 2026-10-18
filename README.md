@@ -9,7 +9,9 @@ running at **https://fbedb.walczaki.com**.
   venue (the Facebook Page an event came from, or "Nearby" for events from the town page) or
   search, or press **New** for only the events first saved in the last 3 days (they carry a "new"
   tag). Filters stay in the address, so a filtered list can be bookmarked.
-- The **☰ menu** on top has **Pages we check**, **Suggest a Page** and **Manage Pages**. They open as popups
+- The **☰ menu** on top has **Pages we check**, **Suggest a Page**, **Manage Pages** and **About**
+  (a short plain-language description for people a link is shared with; the same text is in the
+  page's link-preview tags). They open as popups
   with a ✕ in the corner; the browser's Back button closes the popup instead of leaving the site.
 - **Pages we check** (anyone): the Pages on the list and the ones waiting for approval, with
   search, so people can look before suggesting. "show on the list" filters the events by that Page;

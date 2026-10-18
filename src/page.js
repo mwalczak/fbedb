@@ -8,6 +8,10 @@ function page({ publicList }) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Events</title>
+<meta name="description" content="Upcoming concerts, theatre, club nights and other events around Rybnik and Silesia, gathered from venues' Facebook pages into one list. No Facebook account needed.">
+<meta property="og:title" content="Events around Rybnik">
+<meta property="og:description" content="Upcoming concerts, theatre, club nights and other events around Rybnik and Silesia, gathered from venues' Facebook pages into one list. No Facebook account needed.">
+<meta property="og:type" content="website">
 <style>
   :root { color-scheme: light dark; --line: color-mix(in srgb, CanvasText 14%, transparent); --dim: color-mix(in srgb, CanvasText 62%, transparent); --accent: #2f6fdb; }
   body { margin: 0; font-family: system-ui, sans-serif; background: Canvas; color: CanvasText; line-height: 1.4; }
@@ -25,6 +29,9 @@ function page({ publicList }) {
   #menuList button { display: block; width: 100%; text-align: left; padding: 10px 14px; border: 0; background: none; cursor: pointer; white-space: nowrap; }
   #menuList button:hover, #menuList button:focus-visible { background: color-mix(in srgb, CanvasText 8%, Canvas); }
   #pagesSearch { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; margin: 4px 0 8px; }
+  #about p { margin: 0 0 10px; }
+  ul.about { margin: 0 0 4px; padding-left: 20px; list-style: disc; }
+  ul.about li { margin-bottom: 6px; }
   .pg { padding: 8px 0; border-bottom: 1px solid var(--line); }
   .pg .meta { color: var(--dim); font-size: .85rem; }
   .pg.waiting a, .pg.paused a { opacity: .75; }
@@ -80,6 +87,7 @@ function page({ publicList }) {
         <li><button type="button" id="pagesOpen">Pages we check</button></li>
         <li><button type="button" id="suggestOpen">Suggest a Page</button></li>
         <li><button type="button" id="manage">Manage Pages</button></li>
+        <li><button type="button" id="aboutOpen">About</button></li>
       </ul>
     </nav>
   </header>
@@ -90,6 +98,21 @@ function page({ publicList }) {
   </div>
   <div id="list"><p class="msg">Loading…</p></div>
 </main>
+
+<dialog id="about">
+  <h3>About</h3>
+  <p>Upcoming events around Rybnik and Silesia in one list: concerts, theatre, club nights,
+    festivals and more. They're gathered from the Facebook pages of local venues and from
+    Facebook's events in Rybnik, so you can see what's on without scrolling Facebook,
+    and without a Facebook account.</p>
+  <p>The list is updated twice a day and shows only what's still ahead, nearest first.
+    Tap an event to open it on Facebook for details and tickets.</p>
+  <ul class="about">
+    <li>Pick a venue, or tap <b>New</b> for events added in the last few days.</li>
+    <li><b>Pages we check</b> lists the venues we follow. Missing one? <b>Suggest a Page</b>.</li>
+  </ul>
+  <div class="row"><span></span><button class="btn" id="aboutClose" type="button">Close</button></div>
+</dialog>
 
 <dialog id="pages">
   <h3>Pages we check</h3>
@@ -474,6 +497,8 @@ function renderPages() {
   }));
 }
 $('pagesOpen').addEventListener('click', openPages);
+$('aboutOpen').addEventListener('click', () => openDialog($('about')));
+$('aboutClose').addEventListener('click', () => $('about').close());
 $('pagesSearch').addEventListener('input', renderPages);
 $('pagesClose').addEventListener('click', () => pagesDlg.close());
 $('pagesSuggest').addEventListener('click', () => {
