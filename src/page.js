@@ -52,6 +52,10 @@ function page({ publicList }) {
   .empty, .msg { color: var(--dim); padding: 16px 0; }
   .err { color: #c0392b; }
   dialog { border: 1px solid var(--line); border-radius: 10px; background: Canvas; color: CanvasText; width: min(560px, calc(100vw - 32px)); padding: 16px; }
+  dialog h3 { padding-right: 36px; }
+  dialog .x { position: absolute; top: 8px; right: 8px; width: 36px; height: 36px; border: 0; border-radius: 50%;
+    background: none; color: var(--dim); font-size: 1.5rem; line-height: 1; cursor: pointer; }
+  dialog .x:hover, dialog .x:focus-visible { background: color-mix(in srgb, CanvasText 8%, Canvas); color: CanvasText; }
   dialog h3 { margin: 0 0 12px; }
   dialog form { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
   dialog input[type=url], dialog input[type=text], dialog input[type=password] { flex: 1 1 200px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: Canvas; min-width: 0; }
@@ -242,7 +246,7 @@ function saveFilters() {
   for (const [k, v] of [['page', $('source').value], ['new', onlyNew() ? '1' : ''], ['q', $('q').value.trim()]]) {
     v ? params.set(k, v) : params.delete(k);
   }
-  history.replaceState(null, '', params.toString() ? '?' + params : location.pathname);
+  history.replaceState(history.state, '', params.toString() ? '?' + params : location.pathname);
 }
 
 async function load() {
@@ -270,8 +274,7 @@ $('onlyNew').addEventListener('click', () => {
 // ---- managing Pages ----
 const dlg = $('admin');
 $('manage').addEventListener('click', () => {
-  for (const d of document.querySelectorAll('dialog[open]')) d.close();
-  dlg.showModal();
+  openDialog(dlg);
   showAdmin();
 });
 $('close').addEventListener('click', () => dlg.close());
@@ -387,6 +390,29 @@ function schedule(s) {
 
 function alertErr(e) { alert(e.message); }
 
+// ---- popups: a close button (✕) on each, and the browser's Back closes the popup ----
+// Opening a popup adds one history entry; Back (popstate) closes it instead of leaving the site.
+// Closing it any other way (✕, Close, Esc) takes that entry off again.
+function openDialog(d) {
+  for (const other of document.querySelectorAll('dialog[open]')) if (other !== d) other.close();
+  if (!(history.state && history.state.popup)) history.pushState({ popup: true }, '', location.href);
+  if (!d.open) d.showModal();
+}
+for (const d of document.querySelectorAll('dialog')) {
+  const x = el('button', { className: 'x', type: 'button', textContent: '\u00d7', title: 'Close' });
+  x.setAttribute('aria-label', 'Close');
+  x.addEventListener('click', () => d.close());
+  d.prepend(x);
+  d.addEventListener('close', () => {
+    // 'close' fires a moment later: if another popup was opened meanwhile, keep the entry.
+    if (!document.querySelector('dialog[open]') && history.state && history.state.popup) history.back();
+  });
+}
+window.addEventListener('popstate', () => {
+  for (const d of document.querySelectorAll('dialog[open]')) d.close();
+  saveFilters(); // a filter set from a popup ("show on the list") stays in the address
+});
+
 // ---- menu ----
 const menuBtn = $('menuBtn');
 const menuList = $('menuList');
@@ -403,10 +429,9 @@ menuList.addEventListener('click', () => menu(false));
 const pagesDlg = $('pages');
 let pages = [];
 async function openPages() {
-  for (const d of document.querySelectorAll('dialog[open]')) d.close();
   $('pagesSearch').value = '';
   $('pagesList').replaceChildren(el('p', { className: 'msg', textContent: 'Loading…' }));
-  pagesDlg.showModal();
+  openDialog(pagesDlg);
   try {
     pages = (await api('GET', '/api/pages')).pages;
     renderPages();
@@ -459,9 +484,8 @@ $('pagesSuggest').addEventListener('click', () => {
 // ---- suggesting a Page (anyone) ----
 const sugDlg = $('suggest');
 function openSuggest() {
-  for (const d of document.querySelectorAll('dialog[open]')) d.close();
   $('sugMsg').textContent = '';
-  sugDlg.showModal();
+  openDialog(sugDlg);
 }
 $('suggestOpen').addEventListener('click', openSuggest);
 $('sugSeePages').addEventListener('click', openPages);
