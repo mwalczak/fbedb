@@ -13,6 +13,9 @@ running at **https://fbedb.walczaki.com**.
   (a short plain-language description for people a link is shared with; the same text is in the
   page's link-preview tags). They open as popups
   with a ✕ in the corner; the browser's Back button closes the popup instead of leaving the site.
+- **Polish or English**, whichever the browser prefers (its `Accept-Language`): texts, dates and
+  plural forms. A browser asking for neither gets English; requests without the header (link
+  previews) get Polish. `?lang=en` or `?lang=pl` overrides it. The texts are in `src/strings.js`.
 - **Pages we check** (anyone): the Pages on the list and the ones waiting for approval, with
   search, so people can look before suggesting. "show on the list" filters the events by that Page;
   "Not here? Suggest a Page" opens the suggestion form with the search filled in.

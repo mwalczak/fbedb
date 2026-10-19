@@ -1,6 +1,7 @@
 // HTTP API and the events page.
 const crypto = require('node:crypto');
 const { page } = require('./page');
+const { pickLang } = require('./strings');
 
 const MAX_BODY = 2 * 1024 * 1024; // a run posts a few hundred events at most
 const MAX_EVENTS = 2000;
@@ -142,8 +143,14 @@ function createApp({ store, token, publicList = true, suggestionsPerHour = 5, no
         return res.end('ok\n');
       }
       if (path === '/' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-        return res.end(page({ publicList }));
+        // English or Polish, as the browser asks; ?lang=en|pl overrides it.
+        const asked = url.searchParams.get('lang');
+        const lang = asked === 'en' || asked === 'pl' ? asked : pickLang(req.headers['accept-language']);
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store',
+          'Content-Language': lang, Vary: 'Accept-Language',
+        });
+        return res.end(page({ publicList, lang }));
       }
 
       if (path === '/api/events' && req.method === 'GET') {

@@ -6,6 +6,8 @@ See README.md for the API and deploy.
 - Same shape as mwalczak/mobile-scores: Node 22, no dependencies, `node:sqlite`, one page
   rendered in the browser from the JSON API (`src/page.js`). Keep it dependency-free and small;
   it runs with a 128Mi memory limit.
+- The page is in Polish and English (`src/strings.js`, chosen from Accept-Language). Every text
+  shown to people goes in both languages there; a test checks both have the same keys.
 - Events are unique by Facebook event id (`events.fb_id`, parsed from the url). Upserts use
   COALESCE so a partial post never erases stored fields; `touch` entries never create events.
 - The API contract (`POST /api/events`, `GET /api/sources`) is used by `fbevents/fbedb.py`;

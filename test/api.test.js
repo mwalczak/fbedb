@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const { createApp } = require('../src/app');
+const { STRINGS, pickLang } = require('../src/strings');
 const { Store, pageUrl, eventId } = require('../src/store');
 
 const NOW = new Date('2026-10-11T08:00:00Z');
@@ -15,8 +16,8 @@ async function startServer(options = {}) {
   const server = http.createServer(app);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
-  const api = async (method, path, { body, token = 'secret' } = {}) => {
-    const headers = { 'Content-Type': 'application/json' };
+  const api = async (method, path, { body, token = 'secret', headers: extra = {} } = {}) => {
+    const headers = { 'Content-Type': 'application/json', ...extra };
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(base + path, {
       method, headers, body: body === undefined ? undefined : JSON.stringify(body),
@@ -24,7 +25,7 @@ async function startServer(options = {}) {
     const text = await res.text();
     let json = null;
     try { json = JSON.parse(text); } catch { /* not JSON */ }
-    return { status: res.status, json, text };
+    return { status: res.status, json, text, headers: res.headers };
   };
   return { api, store, close: () => new Promise((r) => server.close(r)) };
 }
@@ -177,6 +178,45 @@ test('the page is served and the API 404s politely', async (t) => {
   assert.match(page.text, /const PUBLIC_LIST = true;/);
   assert.equal((await s.api('GET', '/healthz', { token: null })).text, 'ok\n');
   assert.equal((await s.api('GET', '/api/nope')).status, 404);
+});
+
+test('the page speaks Polish or English, as the browser asks', async (t) => {
+  const s = await startServer();
+  t.after(s.close);
+  const get = async (lang, query = '') => (await s.api('GET', '/' + query, { token: null, headers: lang ? { 'Accept-Language': lang } : {} })).text;
+  const pl = await get('pl-PL,pl;q=0.9,en-US;q=0.8,en;q=0.7');
+  assert.match(pl, /<html lang="pl">/);
+  assert.match(pl, /<title>Wydarzenia<\/title>/);
+  assert.match(pl, />Zaproponuj stronę</);
+  assert.match(pl, /const LANG = 'pl';/);
+  assert.doesNotThrow(() => new Function(pl.split('<script>')[1].split('</script>')[0]));
+  const en = await get('en-US,en;q=0.9,pl;q=0.8');
+  assert.match(en, /<html lang="en">/);
+  assert.match(en, />Suggest a Page</);
+  assert.match(await get('en-US', '?lang=pl'), /<html lang="pl">/);
+  const res = await s.api('GET', '/', { token: null, headers: { 'Accept-Language': 'pl' } });
+  assert.equal(res.headers.get('content-language'), 'pl');
+  assert.equal(res.headers.get('vary'), 'Accept-Language');
+});
+
+test('choosing the language from Accept-Language', () => {
+  assert.equal(pickLang('pl'), 'pl');
+  assert.equal(pickLang('pl-PL,pl;q=0.9,en;q=0.8'), 'pl');
+  assert.equal(pickLang('en-GB,en;q=0.9,pl;q=0.8'), 'en');
+  assert.equal(pickLang('de-DE,de;q=0.9,pl;q=0.5'), 'pl'); // Polish listed, English not
+  assert.equal(pickLang('de-DE,de;q=0.9'), 'en'); // neither: English
+  assert.equal(pickLang('en;q=0.3,pl;q=0.7'), 'pl');
+  assert.equal(pickLang('*'), 'en');
+  assert.equal(pickLang(undefined), 'pl'); // link previews: the town's language
+});
+
+test('every text exists in both languages', () => {
+  const shape = (o) => Object.keys(o).sort().map((k) => (typeof o[k] === 'object' ? k + ':' + shape(o[k]) : k)).join(',');
+  const withoutPlurals = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => k !== 'events' && k !== 'pages'));
+  assert.equal(shape(withoutPlurals(STRINGS.pl)), shape(withoutPlurals(STRINGS.en)));
+  for (const k of ['events', 'pages']) {
+    assert.ok(STRINGS.en[k].other && STRINGS.pl[k].few && STRINGS.pl[k].many);
+  }
 });
 
 test('cleaning up events linked to too many Pages', async (t) => {
